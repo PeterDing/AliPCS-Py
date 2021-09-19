@@ -205,10 +205,8 @@ AliPCS-Py useradd
 或者直接添加：
 
 ```
-AliPCS-Py useradd --cookies "cookies 值" --bduss "bduss 值"
+AliPCS-Py useradd --refresh-token "..."
 ```
-
-你也可以只添加 `bduss`，省去 `cookies` (或 `cookies` 中没有 `STOKEN` 值)，但这会让你无发使用 `share` 和 `save` 命令来转存其他用法的分享文件。
 
 AliPCS-Py 支持多用户，你只需一直用 `useradd` 来添加用户即可。
 
