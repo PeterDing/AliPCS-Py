@@ -815,6 +815,8 @@ def remove(ctx, remotepaths):
 @click.argument("remotepaths", nargs=-1, type=str)
 @click.option("--file-id", "-i", multiple=True, type=str, help="文件 ID")
 @click.option("--outdir", "-o", nargs=1, type=str, default=".", help="指定下载本地目录，默认为当前目录")
+@click.option("--share-id", "--si", nargs=1, type=str, help="下载这个分享ID下的文件")
+@click.option("--password", "-p", type=str, help="链接密码，如果没有不用设置")
 @click.option("--recursive", "-R", is_flag=True, help="递归下载")
 @click.option(
     "--from-index", "-f", type=int, default=0, help="从所有目录中的第几个文件开始下载，默认为0（第一个）"
@@ -866,6 +868,8 @@ def download(
     remotepaths,
     file_id,
     outdir,
+    share_id,
+    password,
     recursive,
     from_index,
     include,
@@ -899,34 +903,56 @@ def download(
     if exclude_regex:
         sifters.append(ExcludeSifter(exclude_regex, regex=True))
 
-    pwd = _pwd(ctx)
-    remotepaths = [join_path(pwd, r) for r in remotepaths]
-
     if no_decrypt:
         encrypt_password = b""
     else:
         encrypt_password = encrypt_password or _encrypt_password(ctx)
 
-    _download(
-        api,
-        remotepaths,
-        file_id,
-        outdir,
-        sifters=sifters,
-        recursive=recursive,
-        from_index=from_index,
-        downloader=getattr(Downloader, downloader),
-        downloadparams=DownloadParams(
-            concurrency=concurrency, chunk_size=chunk_size, quiet=quiet
-        ),
-        out_cmd=out_cmd,
-        encrypt_password=encrypt_password,
-    )
+    if share_id:
+        assert all([r.startswith("/") for r in remotepaths])
+        remotepaths = remotepaths or ["/"]
+        _share.download_shared(
+            api,
+            remotepaths,
+            file_id,
+            outdir,
+            share_id,
+            password=password,
+            sifters=sifters,
+            recursive=recursive,
+            from_index=from_index,
+            downloader=getattr(Downloader, downloader),
+            downloadparams=DownloadParams(
+                concurrency=concurrency, chunk_size=chunk_size, quiet=quiet
+            ),
+            out_cmd=out_cmd,
+            encrypt_password=encrypt_password,
+        )
+    else:
+        pwd = _pwd(ctx)
+        remotepaths = [join_path(pwd, r) for r in remotepaths]
+        _download(
+            api,
+            remotepaths,
+            file_id,
+            outdir,
+            sifters=sifters,
+            recursive=recursive,
+            from_index=from_index,
+            downloader=getattr(Downloader, downloader),
+            downloadparams=DownloadParams(
+                concurrency=concurrency, chunk_size=chunk_size, quiet=quiet
+            ),
+            out_cmd=out_cmd,
+            encrypt_password=encrypt_password,
+        )
 
 
 @app.command()
 @click.argument("remotepaths", nargs=-1, type=str)
 @click.option("--file-id", "-i", multiple=True, type=str, help="文件 ID")
+@click.option("--share-id", "--si", nargs=1, type=str, help="下载这个分享ID下的文件")
+@click.option("--password", "-p", type=str, help="链接密码，如果没有不用设置")
 @click.option("--recursive", "-R", is_flag=True, help="递归播放")
 @click.option(
     "--from-index", "-f", type=int, default=0, help="从所有目录中的第几个文件开始播放，默认为0（第一个）"
@@ -962,6 +988,8 @@ def play(
     ctx,
     remotepaths,
     file_id,
+    share_id,
+    password,
     recursive,
     from_index,
     include,
@@ -1022,21 +1050,41 @@ def play(
         ps.start()
         time.sleep(1)
 
-    _play(
-        api,
-        remotepaths,
-        file_ids=file_id,
-        sifters=sifters,
-        recursive=recursive,
-        from_index=from_index,
-        player=getattr(Player, player),
-        player_params=player_params,
-        quiet=quiet,
-        shuffle=shuffle,
-        ignore_ext=ignore_ext,
-        out_cmd=out_cmd,
-        local_server=local_server,
-    )
+    if share_id:
+        _share.play_shared(
+            api,
+            remotepaths,
+            file_ids=file_id,
+            share_id=share_id,
+            password=password,
+            sifters=sifters,
+            recursive=recursive,
+            from_index=from_index,
+            player=getattr(Player, player),
+            player_params=player_params,
+            quiet=quiet,
+            shuffle=shuffle,
+            ignore_ext=ignore_ext,
+            out_cmd=out_cmd,
+            local_server=local_server,
+        )
+
+    else:
+        _play(
+            api,
+            remotepaths,
+            file_ids=file_id,
+            sifters=sifters,
+            recursive=recursive,
+            from_index=from_index,
+            player=getattr(Player, player),
+            player_params=player_params,
+            quiet=quiet,
+            shuffle=shuffle,
+            ignore_ext=ignore_ext,
+            out_cmd=out_cmd,
+            local_server=local_server,
+        )
 
     if use_local_server:
         ps.terminate()
@@ -1185,7 +1233,7 @@ def sync(
 # {{{
 @app.command()
 @click.argument("remotepaths", nargs=-1, type=str)
-@click.option("--password", "-p", type=str, default="", help="设置秘密，4个字符。默认没有秘密")
+@click.option("--password", "-p", type=str, default="", help="设置秘密，默认没有秘密")
 @click.option("--period-time", "--pt", type=int, default=0, help="设置分享有效期，单位为天")
 @click.pass_context
 @handle_error
