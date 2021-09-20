@@ -7,6 +7,14 @@ from alipcs_py.alipcs import AliPCSApi, PcsFile
 from alipcs_py.commands.list_files import list_files
 from alipcs_py.commands.sifter import Sifter
 from alipcs_py.commands.display import display_shared_links
+from alipcs_py.commands.download import (
+    download,
+    Downloader,
+    DEFAULT_DOWNLOADER,
+    DownloadParams,
+    DEFAULT_DOWNLOADPARAMS,
+)
+from alipcs_py.commands.play import play, Player, DEFAULT_PLAYER
 
 from rich import print
 
@@ -160,3 +168,75 @@ def remotepath_exists(
         names = set([sp.name for sp in api.list_path_iter(rd)])
         _cache[rd] = names
     return name in names
+
+
+def download_shared(
+    api: AliPCSApi,
+    remotepaths: List[str],
+    file_ids: List[str],
+    localdir: str,
+    share_id: str,
+    password: str = "",
+    sifters: List[Sifter] = [],
+    recursive: bool = False,
+    from_index: int = 0,
+    downloader: Downloader = DEFAULT_DOWNLOADER,
+    downloadparams: DownloadParams = DEFAULT_DOWNLOADPARAMS,
+    out_cmd: bool = False,
+    encrypt_password: bytes = b"",
+):
+    share_token = api.get_share_token(share_id, share_password=password)
+
+    download(
+        api,
+        remotepaths,
+        file_ids=file_ids,
+        localdir=localdir,
+        share_id=share_id,
+        share_token=share_token,
+        sifters=sifters,
+        recursive=recursive,
+        from_index=from_index,
+        downloader=downloader,
+        downloadparams=downloadparams,
+        out_cmd=out_cmd,
+        encrypt_password=encrypt_password,
+    )
+
+
+def play_shared(
+    api: AliPCSApi,
+    remotepaths: List[str],
+    file_ids: List[str],
+    share_id: str,
+    password: str = "",
+    sifters: List[Sifter] = [],
+    recursive: bool = False,
+    from_index: int = 0,
+    player: Player = DEFAULT_PLAYER,
+    player_params: List[str] = [],
+    quiet: bool = False,
+    shuffle: bool = False,
+    ignore_ext: bool = False,
+    out_cmd: bool = False,
+    local_server: str = "",
+):
+    share_token = api.get_share_token(share_id, share_password=password)
+
+    play(
+        api,
+        remotepaths,
+        file_ids=file_ids,
+        share_id=share_id,
+        share_token=share_token,
+        sifters=sifters,
+        recursive=recursive,
+        from_index=from_index,
+        player=player,
+        player_params=player_params,
+        quiet=quiet,
+        shuffle=shuffle,
+        ignore_ext=ignore_ext,
+        out_cmd=out_cmd,
+        local_server=local_server,
+    )
