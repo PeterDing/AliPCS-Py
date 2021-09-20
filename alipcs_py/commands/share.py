@@ -4,7 +4,9 @@ from collections import deque
 import re
 
 from alipcs_py.alipcs import AliPCSApi, PcsFile
-from alipcs_py.commands.display import display_shared_links, display_shared_paths
+from alipcs_py.commands.list_files import list_files
+from alipcs_py.commands.sifter import Sifter
+from alipcs_py.commands.display import display_shared_links
 
 from rich import print
 
@@ -104,36 +106,50 @@ def save_shared(
                 shared_files.extendleft(sub_files[::-1])
 
 
-def list_shared_files(api: AliPCSApi, shared_url: str, password: str = ""):
-    share_id = _extract_share_id(shared_url)
+def list_shared_files(
+    api: AliPCSApi,
+    *remotepaths: str,
+    share_id: str = "",
+    password: str = "",
+    file_ids: List[str] = [],
+    desc: bool = False,
+    name: bool = False,
+    time: bool = False,
+    size: bool = False,
+    all: bool = True,
+    limit: int = 100,
+    recursive: bool = False,
+    sifters: List[Sifter] = [],
+    highlight: bool = False,
+    show_size: bool = False,
+    show_date: bool = False,
+    show_file_id: bool = False,
+    show_absolute_path: bool = False,
+    csv: bool = False,
+):
     share_token = api.get_share_token(share_id, share_password=password)
 
-    shared_files_iter = api.list_path_iter(
-        "/", share_id=share_id, share_token=share_token
+    list_files(
+        api,
+        *remotepaths,
+        file_ids=file_ids,
+        share_id=share_id,
+        share_token=share_token,
+        desc=desc,
+        name=name,
+        time=time,
+        size=size,
+        all=all,
+        limit=limit,
+        recursive=recursive,
+        sifters=sifters,
+        highlight=highlight,
+        show_size=show_size,
+        show_date=show_date,
+        show_file_id=show_file_id,
+        show_absolute_path=show_absolute_path,
+        csv=csv,
     )
-
-    all_shared_files: List[PcsFile] = []
-
-    shared_files = deque(shared_files_iter)
-    all_shared_files += shared_files
-
-    while shared_files:
-        shared_file = shared_files.popleft()
-
-        if shared_file.is_dir:
-            # Take all sub paths
-            sub_files = list(
-                api.list_path_iter(
-                    shared_file.path,
-                    file_id=shared_file.file_id,
-                    share_id=share_id,
-                    share_token=share_token,
-                )
-            )
-            all_shared_files += sub_files
-            shared_files.extendleft(sub_files[::-1])
-
-    display_shared_paths(*all_shared_files)
 
 
 def remotepath_exists(
