@@ -1,13 +1,8 @@
-from typing import Optional, List, Tuple
-
-from threading import Semaphore
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Optional, List
 
 from alipcs_py.alipcs import AliPCSApi
-from alipcs_py.alipcs.inner import PcsFile, PcsRapidUploadInfo
+from alipcs_py.alipcs.inner import PcsFile
 from alipcs_py.common.path import join_path
-from alipcs_py.common.concurrent import sure_release
-from alipcs_py.common.localstorage import save_rapid_upload_info
 from alipcs_py.commands.log import get_logger
 from alipcs_py.commands.sifter import Sifter, sift
 from alipcs_py.commands.display import display_files
@@ -23,6 +18,8 @@ def list_file(
     api: AliPCSApi,
     remotepath: str,
     file_id: str = None,
+    share_id: str = None,
+    share_token: str = None,
     desc: bool = False,
     name: bool = False,
     time: bool = False,
@@ -44,13 +41,12 @@ def list_file(
     show_dl_link: bool = False,
     csv: bool = False,
     only_dl_link: bool = False,
-    only_hash_link: bool = False,
 ):
     pcs_file: Optional[PcsFile]
     if file_id:
-        pcs_file = api.meta(file_id)[0]
+        pcs_file = api.meta(file_id, share_id=share_id, share_token=share_token)[0]
     else:
-        pcs_file = api.path(remotepath)
+        pcs_file = api.path(remotepath, share_id=share_id, share_token=share_token)
     if not pcs_file:
         return
 
@@ -59,6 +55,8 @@ def list_file(
         pcs_files = api.list_path(
             remotepath,
             file_id=pcs_file.file_id,
+            share_id=share_id,
+            share_token=share_token,
             desc=desc,
             name=name,
             time=time,
@@ -101,6 +99,8 @@ def list_file(
                     api,
                     join_path(remotepath, pcs_file.name),
                     file_id=pcs_file.file_id,
+                    share_id=share_id,
+                    share_token=share_token,
                     desc=desc,
                     name=name,
                     time=time,
@@ -122,7 +122,6 @@ def list_file(
                     show_dl_link=show_dl_link,
                     csv=csv,
                     only_dl_link=only_dl_link,
-                    only_hash_link=only_hash_link,
                 )
 
 
@@ -130,6 +129,8 @@ def list_files(
     api: AliPCSApi,
     *remotepaths: str,
     file_ids: List[str] = [],
+    share_id: str = None,
+    share_token: str = None,
     desc: bool = False,
     name: bool = False,
     time: bool = False,
@@ -151,12 +152,13 @@ def list_files(
     show_dl_link: bool = False,
     csv: bool = False,
     only_dl_link: bool = False,
-    only_hash_link: bool = False,
 ):
     for rp in remotepaths:
         list_file(
             api,
             rp,
+            share_id=share_id,
+            share_token=share_token,
             desc=desc,
             name=name,
             time=time,
@@ -178,7 +180,6 @@ def list_files(
             show_dl_link=show_dl_link,
             csv=csv,
             only_dl_link=only_dl_link,
-            only_hash_link=only_hash_link,
         )
 
     for file_id in file_ids:
@@ -186,6 +187,8 @@ def list_files(
             api,
             "",
             file_id=file_id,
+            share_id=share_id,
+            share_token=share_token,
             desc=desc,
             name=name,
             time=time,
@@ -207,5 +210,4 @@ def list_files(
             show_dl_link=show_dl_link,
             csv=csv,
             only_dl_link=only_dl_link,
-            only_hash_link=only_hash_link,
         )
