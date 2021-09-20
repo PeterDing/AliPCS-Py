@@ -147,7 +147,7 @@ class PcsFile:
     def root() -> "PcsFile":
         return PcsFile(
             file_id="root",
-            name="/",
+            name="",
             parent_file_id="root",
             type="folder",
             is_dir=True,
