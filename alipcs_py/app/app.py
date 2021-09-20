@@ -520,7 +520,7 @@ def pwd(ctx):
 @click.option("--show-size", "-S", is_flag=True, help="显示文件大小")
 @click.option("--show-date", "-D", is_flag=True, help="显示文件创建时间")
 @click.option("--show-file-id", "--ID", is_flag=True, help="显示文件 ID")
-@click.option("--show-hash", "-H", is_flag=True, help="显示文件md5")
+@click.option("--show-hash", "-H", is_flag=True, help="显示文件 sha1")
 @click.option("--show-absolute-path", "-A", is_flag=True, help="显示文件绝对路径")
 @click.option("--show-dl-link", "--DL", is_flag=True, help="显示文件下载连接")
 @click.option("--csv", is_flag=True, help="用 csv 格式显示，单行显示，推荐和 --DL 或 --HL 一起用")
@@ -615,7 +615,7 @@ def ls(
 @click.option("--no-highlight", "--NH", is_flag=True, help="取消匹配高亮")
 @click.option("--show-size", "-S", is_flag=True, help="显示文件大小")
 @click.option("--show-date", "-D", is_flag=True, help="显示文件创建时间")
-@click.option("--show-hash", "-H", is_flag=True, help="显示文件md5")
+@click.option("--show-hash", "-H", is_flag=True, help="显示文件 sha1")
 @click.option("--csv", is_flag=True, help="用 csv 格式显示")
 @click.pass_context
 @handle_error
@@ -1239,30 +1239,106 @@ def cancelshared(ctx, share_ids):
 
 
 @app.command()
-@click.argument("shared_url", nargs=1, type=str)
+@click.argument("share_id", nargs=1, type=str)
+@click.argument("remotepaths", nargs=-1, type=str)
+@click.option("--file-id", "-i", multiple=True, type=str, help="文件 ID")
 @click.option("--password", "-p", type=str, help="链接密码，如果没有不用设置")
+@click.option("--desc", "-r", is_flag=True, help="逆序排列文件")
+@click.option("--name", "-n", is_flag=True, help="依名字排序")
+@click.option("--time", "-t", is_flag=True, help="依时间排序")
+@click.option("--size", "-s", is_flag=True, help="依文件大小排序")
+@click.option("--recursive", "-R", is_flag=True, help="递归列出文件")
+@click.option("--include", "-I", type=str, help="筛选包含这个字符串的文件")
+@click.option("--include-regex", "--IR", type=str, help="筛选包含这个正则表达式的文件")
+@click.option("--exclude", "-E", type=str, help="筛选 不 包含这个字符串的文件")
+@click.option("--exclude-regex", "--ER", type=str, help="筛选 不 包含这个正则表达式的文件")
+@click.option("--is-file", "-f", is_flag=True, help="筛选 非 目录文件")
+@click.option("--is-dir", "-d", is_flag=True, help="筛选目录文件")
+@click.option("--no-highlight", "--NH", is_flag=True, help="取消匹配高亮")
+@click.option("--show-size", "-S", is_flag=True, help="显示文件大小")
+@click.option("--show-date", "-D", is_flag=True, help="显示文件创建时间")
+@click.option("--show-file-id", "--ID", is_flag=True, help="显示文件 ID")
+@click.option("--show-absolute-path", "-A", is_flag=True, help="显示文件绝对路径")
+@click.option("--csv", is_flag=True, help="用 csv 格式显示，单行显示")
 @click.pass_context
 @handle_error
 @multi_user_do
-def listsharedpaths(ctx, shared_url, password):
+def listsharedpaths(
+    ctx,
+    share_id,
+    remotepaths,
+    file_id,
+    password,
+    desc,
+    name,
+    time,
+    size,
+    recursive,
+    include,
+    include_regex,
+    exclude,
+    exclude_regex,
+    is_file,
+    is_dir,
+    no_highlight,
+    show_size,
+    show_date,
+    show_file_id,
+    show_absolute_path,
+    csv,
+):
     """列出其他用户分享链接中的文件"""
 
     api = _recent_api(ctx)
     if not api:
         return
 
-    _share.list_shared_files(api, shared_url, password=password)
+    sifters = []
+    if include:
+        sifters.append(IncludeSifter(include, regex=False))
+    if include_regex:
+        sifters.append(IncludeSifter(include, regex=True))
+    if exclude:
+        sifters.append(ExcludeSifter(exclude, regex=False))
+    if exclude_regex:
+        sifters.append(ExcludeSifter(exclude_regex, regex=True))
+    if is_file:
+        sifters.append(IsFileSifter())
+    if is_dir:
+        sifters.append(IsDirSifter())
+
+    if not file_id and not remotepaths:
+        remotepaths = ["/"]
+
+    _share.list_shared_files(
+        api,
+        *remotepaths,
+        share_id=share_id,
+        password=password,
+        file_ids=file_id,
+        desc=desc,
+        name=name,
+        time=time,
+        size=size,
+        recursive=recursive,
+        sifters=sifters,
+        highlight=not no_highlight,
+        show_size=show_size,
+        show_date=show_date,
+        show_file_id=show_file_id,
+        show_absolute_path=show_absolute_path,
+        csv=csv,
+    )
 
 
 @app.command()
-@click.argument("shared_url", nargs=1, type=str)
+@click.argument("shared_url_or_id", nargs=1, type=str)
 @click.argument("remotedir", nargs=1, type=str)
-@click.option("--share-id", "-i", type=str, help="分享连接 ID")
 @click.option("--password", "-p", type=str, help="链接密码，如果没有不用设置")
 @click.pass_context
 @handle_error
 @multi_user_do
-def save(ctx, shared_url, remotedir, share_id, password):
+def save(ctx, shared_url_or_id, remotedir, password):
     """保存其他用户分享的链接"""
 
     api = _recent_api(ctx)
@@ -1271,6 +1347,13 @@ def save(ctx, shared_url, remotedir, share_id, password):
 
     pwd = _pwd(ctx)
     remotedir = join_path(pwd, remotedir)
+
+    shared_url = ""
+    share_id = ""
+    if "/s/" in shared_url_or_id:
+        shared_url = shared_url_or_id
+    else:
+        share_id = shared_url_or_id
 
     _share.save_shared(
         api, remotedir, shared_url=shared_url, share_id=share_id, password=password
