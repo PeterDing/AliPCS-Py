@@ -23,7 +23,6 @@ from alipcs_py.common.event import KeyHandler, KeyboardMonitor
 from alipcs_py.common.constant import CPU_NUM
 from alipcs_py.common.concurrent import sure_release, retry
 from alipcs_py.common.progress_bar import _progress, progress_task_exists
-from alipcs_py.common.localstorage import save_rapid_upload_info
 from alipcs_py.common.crypto import calc_sha1, calc_proof_code
 from alipcs_py.common.io import (
     total_len,
