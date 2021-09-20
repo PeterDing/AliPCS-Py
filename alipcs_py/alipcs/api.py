@@ -569,7 +569,7 @@ class AliPCSApi:
     ) -> str:
         """Get shared file download link"""
 
-        return self.shared_file_download_url(
+        return self._alipcs.shared_file_download_url(
             shared_file_id,
             share_id,
             share_token,
