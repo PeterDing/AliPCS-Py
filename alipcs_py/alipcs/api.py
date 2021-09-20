@@ -117,14 +117,16 @@ class AliPCSApi:
     def status(self) -> str:
         return self._alipcs.status
 
-    def meta(self, *file_ids: str) -> List[PcsFile]:
+    def meta(
+        self, *file_ids: str, share_id: str = None, share_token: str = None
+    ) -> List[PcsFile]:
         """Meta data of `remotepaths`"""
 
         pcs_files = [PcsFile.root() if fid == "root" else None for fid in file_ids]
         fids = [fid for fid in file_ids if fid != "root"]
 
         if fids:
-            info = self._alipcs.meta(*fids)
+            info = self._alipcs.meta(*fids, share_id=share_id, share_token=share_token)
             pfs = [PcsFile.from_(v.get("body")) for v in info["responses"]]
             j = 0
             for i in range(len(pcs_files)):
@@ -195,7 +197,7 @@ class AliPCSApi:
         url_expire_sec: int = 7200,
     ) -> Iterator[PcsFile]:
         next_marker = ""
-        pcs_file = self.meta(file_id)[0]
+        pcs_file = self.meta(file_id, share_id=share_id, share_token=share_token)[0]
         dirname = pcs_file.name
         while True:
             pcs_files, next_marker = self.list(
@@ -558,6 +560,22 @@ class AliPCSApi:
         )
         return [PcsFile.from_(v["body"]) for v in info.get("responses", [])]
 
+    def shared_file_download_url(
+        self,
+        shared_file_id: str,
+        share_id: str,
+        share_token: str,
+        expire_duration: int = 10 * 60,
+    ) -> str:
+        """Get shared file download link"""
+
+        return self.shared_file_download_url(
+            shared_file_id,
+            share_id,
+            share_token,
+            expire_duration=expire_duration,
+        )
+
     def user_info(self) -> PcsUser:
         """User's information"""
 
@@ -593,6 +611,28 @@ class AliPCSApi:
 
         return self._alipcs.file_stream(
             file_id,
+            max_chunk_size=max_chunk_size,
+            callback=callback,
+            encrypt_password=encrypt_password,
+        )
+
+    def shared_file_stream(
+        self,
+        shared_file_id: str,
+        share_id: str,
+        share_token: str,
+        expire_duration: int = 10 * 60,
+        max_chunk_size: int = DEFAULT_MAX_CHUNK_SIZE,
+        callback: Callable[..., None] = None,
+        encrypt_password: bytes = b"",
+    ) -> Optional[RangeRequestIO]:
+        """Shared file stream as a normal io"""
+
+        return self._alipcs.shared_file_stream(
+            shared_file_id,
+            share_id,
+            share_token,
+            expire_duration=expire_duration,
             max_chunk_size=max_chunk_size,
             callback=callback,
             encrypt_password=encrypt_password,

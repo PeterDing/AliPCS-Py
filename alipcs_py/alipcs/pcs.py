@@ -65,6 +65,7 @@ class PcsNode(Enum):
     ShareToken = "v2/share_link/get_share_token"
     SharedInfo = "adrive/v3/share_link/get_share_by_anonymous"
     SharedList = "adrive/v3/share_link/list"
+    SharedFileDownloadUrl = "v2/file/get_share_link_download_url"
 
     PersonalInfo = "v2/databox/get_personal_info"
     User = "v2/user/get"
@@ -252,24 +253,35 @@ class AliPCS:
 
     @assert_ok
     @to_refresh_token
-    def meta(self, *file_ids: str):
+    def meta(self, *file_ids: str, share_id: str = None, share_token: str = None):
         assert "root" not in file_ids, '"root" has NOT meta info'
+
+        headers = dict(PCS_HEADERS)
+        if share_id:
+            assert share_token, "Need share_token"
+
+            headers["x-share-token"] = share_token
 
         requests = []
         for file_id in file_ids:
+            body = dict(
+                file_id=file_id,
+            )
+            if share_id:
+                body["share_id"] = share_id
+            else:
+                body["drive_id"] = self.default_drive_id
+
             req = dict(
                 method="POST",
                 url="/file/get",
                 id=file_id,
                 headers={"Content-Type": "application/json"},
-                body=dict(
-                    drive_id=self.default_drive_id,
-                    file_id=file_id,
-                ),
+                body=body,
             )
             requests.append(req)
 
-        return self.batch_operate(requests, resource="file")
+        return self.batch_operate(requests, resource="file", headers=headers)
 
     def exists(self, file_id: str) -> bool:
         if file_id == "root":
@@ -363,7 +375,7 @@ class AliPCS:
 
             data["share_id"] = share_id
             data.pop("drive_id")
-            headers = {"x-share-token": share_token}
+            headers["x-share-token"] = share_token
 
         resp = self._request(Method.Post, url, headers=headers, json=data)
         return resp.json()
@@ -741,6 +753,47 @@ class AliPCS:
 
     @assert_ok
     @to_refresh_token
+    def _get_shared_file_download_url(
+        self,
+        shared_file_id: str,
+        share_id: str,
+        share_token: str,
+        expire_duration: int = 10 * 60,
+    ):
+        url = PcsNode.SharedFileDownloadUrl.url()
+        data = dict(
+            expire_sec=expire_duration,
+            file_id=shared_file_id,
+            share_id=share_id,
+        )
+        headers = dict(PCS_HEADERS)
+        headers["x-share-token"] = share_token
+
+        resp = self._request(Method.Post, url, headers=headers, json=data)
+        return resp.json()
+
+    def shared_file_download_url(
+        self,
+        shared_file_id: str,
+        share_id: str,
+        share_token: str,
+        expire_duration: int = 10 * 60,
+    ) -> str:
+        info = self._get_shared_file_download_url(
+            shared_file_id,
+            share_id,
+            share_token,
+            expire_duration=expire_duration,
+        )
+        url = info["url"]
+
+        headers = dict(PCS_HEADERS)
+        headers["Referer"] = "https://www.aliyundrive.com/"
+        resp = requests.get(url, headers=headers, allow_redirects=False)
+        return resp.headers["Location"]
+
+    @assert_ok
+    @to_refresh_token
     def user_info(self):
         url = PcsNode.PersonalInfo.url()
         data = dict()
@@ -772,6 +825,39 @@ class AliPCS:
     ) -> Optional[RangeRequestIO]:
         info = self.download_link(file_id)
         url = info["url"]
+
+        headers = {
+            "User-Agent": PCS_UA,
+            "Connection": "Keep-Alive",
+            "Referer": "https://www.aliyundrive.com/",
+            "Accept-Encoding": "gzip, deflate, br",
+            "Accept-Language": "en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7,zh-TW;q=0.6",
+        }
+        return RangeRequestIO(
+            Method.Get.value,
+            url,
+            headers=headers,
+            max_chunk_size=max_chunk_size,
+            callback=callback,
+            encrypt_password=encrypt_password,
+        )
+
+    def shared_file_stream(
+        self,
+        shared_file_id: str,
+        share_id: str,
+        share_token: str,
+        expire_duration: int = 10 * 60,
+        max_chunk_size: int = DEFAULT_MAX_CHUNK_SIZE,
+        callback: Callable[..., None] = None,
+        encrypt_password: bytes = b"",
+    ) -> Optional[RangeRequestIO]:
+        url = self.shared_file_download_url(
+            shared_file_id,
+            share_id,
+            share_token,
+            expire_duration=expire_duration,
+        )
 
         headers = {
             "User-Agent": PCS_UA,
