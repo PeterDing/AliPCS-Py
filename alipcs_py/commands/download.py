@@ -16,7 +16,6 @@ from alipcs_py.common.downloader import MeDownloader
 from alipcs_py.common.progress_bar import _progress, progress_task_exists
 from alipcs_py.commands.sifter import Sifter, sift
 from alipcs_py.commands.log import get_logger
-from alipcs_py.commands.display import display_blocked_remotepath
 
 _print = print
 
@@ -267,8 +266,11 @@ DEFAULT_DOWNLOADER = Downloader.me
 
 
 def download_file(
+    api: AliPCSApi,
     pcs_file: PcsFile,
     localdir: str,
+    share_id: str = None,
+    share_token: str = None,
     downloader: Downloader = DEFAULT_DOWNLOADER,
     downloadparams: DownloadParams = DEFAULT_DOWNLOADPARAMS,
     out_cmd: bool = False,
@@ -284,7 +286,6 @@ def download_file(
         print(f"[yellow]{localpath}[/yellow] is ready existed.")
         return
 
-    # pcs_file = api.path(remotepath)
     if not pcs_file:
         return
 
@@ -293,10 +294,20 @@ def download_file(
             f"[italic blue]Download[/italic blue]: {pcs_file.path or pcs_file.name} to {localpath}"
         )
 
-    assert pcs_file.download_url
+    download_url: Optional[str]
+    if share_id:
+        assert share_token, "Need share_token"
+
+        download_url = api.shared_file_download_url(
+            pcs_file.file_id, share_id, share_token
+        )
+    else:
+        download_url = pcs_file.download_url
+
+    assert download_url
 
     downloader.download(
-        pcs_file.download_url,
+        download_url,
         str(localpath),
         downloadparams=downloadparams,
         out_cmd=out_cmd,
@@ -308,6 +319,8 @@ def download_dir(
     api: AliPCSApi,
     pcs_file: PcsFile,
     localdir: str,
+    share_id: str = None,
+    share_token: str = None,
     sifters: List[Sifter] = [],
     recursive: bool = False,
     from_index: int = 0,
@@ -316,14 +329,19 @@ def download_dir(
     out_cmd: bool = False,
     encrypt_password: bytes = b"",
 ):
-    remotefiles = list(api.list_iter(pcs_file.file_id))
+    remotefiles = list(
+        api.list_iter(pcs_file.file_id, share_id=share_id, share_token=share_token)
+    )
     remotefiles = sift(remotefiles, sifters, recursive=recursive)
     for rp in remotefiles[from_index:]:
         if rp.is_file:
             download_file(
+                api,
                 rp,
                 localdir,
-                downloader,
+                share_id=share_id,
+                share_token=share_token,
+                downloader=downloader,
                 downloadparams=downloadparams,
                 out_cmd=out_cmd,
                 encrypt_password=encrypt_password,
@@ -335,6 +353,8 @@ def download_dir(
                     api,
                     rp,
                     str(_localdir),
+                    share_id=share_id,
+                    share_token=share_token,
                     sifters=sifters,
                     recursive=recursive,
                     from_index=from_index,
@@ -350,6 +370,8 @@ def download(
     remotepaths: List[str],
     file_ids: List[str],
     localdir: str,
+    share_id: str = None,
+    share_token: str = None,
     sifters: List[Sifter] = [],
     recursive: bool = False,
     from_index: int = 0,
@@ -377,15 +399,18 @@ def download(
     )
 
     for rp in remotepaths:
-        rpf = api.path(rp)
+        rpf = api.path(rp, share_id=share_id, share_token=share_token)
         if not rpf:
             print(f"[yellow]WARNING[/yellow]: `{rp}` does not exist.")
             continue
 
         if rpf.is_file:
             download_file(
+                api,
                 rpf,
                 localdir,
+                share_id=share_id,
+                share_token=share_token,
                 downloader=downloader,
                 downloadparams=downloadparams,
                 out_cmd=out_cmd,
@@ -397,6 +422,8 @@ def download(
                 api,
                 rpf,
                 _localdir,
+                share_id=share_id,
+                share_token=share_token,
                 sifters=sifters,
                 recursive=recursive,
                 from_index=from_index,
@@ -407,15 +434,18 @@ def download(
             )
 
     for file_id in file_ids:
-        rpf = api.meta(file_id)[0]
+        rpf = api.meta(file_id, share_id=share_id, share_token=share_token)[0]
         if not rpf:
             print(f"[yellow]WARNING[/yellow]: file_id `{file_id}` does not exist.")
             continue
 
         if rpf.is_file:
             download_file(
+                api,
                 rpf,
                 localdir,
+                share_id=share_id,
+                share_token=share_token,
                 downloader=downloader,
                 downloadparams=downloadparams,
                 out_cmd=out_cmd,
@@ -427,6 +457,8 @@ def download(
                 api,
                 rpf,
                 _localdir,
+                share_id=share_id,
+                share_token=share_token,
                 sifters=sifters,
                 recursive=recursive,
                 from_index=from_index,
