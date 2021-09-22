@@ -17,7 +17,6 @@ import traceback
 
 from alipcs_py import __version__
 from alipcs_py.alipcs import AliPCSApi, AliPCSError
-from alipcs_py.alipcs.inner import PcsRapidUploadInfo
 from alipcs_py.app.account import Account, AccountManager
 from alipcs_py.commands.env import (
     ACCOUNT_DATA_PATH,
@@ -268,7 +267,6 @@ ALIAS = OrderedDict(
         "S": "share",
         "sl": "shared",
         "cs": "cancelshared",
-        "lsp": "listsharedpaths",
         "s": "save",
     }
 )
@@ -505,6 +503,9 @@ def pwd(ctx):
 @app.command()
 @click.argument("remotepaths", nargs=-1, type=str)
 @click.option("--file-id", "-i", multiple=True, type=str, help="文件 ID")
+@click.option("--share-id", "--si", nargs=1, type=str, help="列出这个分享ID下的文件")
+@click.option("--share-url", "--su", nargs=1, type=str, help="列出这个分享url下的文件")
+@click.option("--password", "-p", type=str, help="链接密码，如果没有不用设置")
 @click.option("--desc", "-r", is_flag=True, help="逆序排列文件")
 @click.option("--name", "-n", is_flag=True, help="依名字排序")
 @click.option("--time", "-t", is_flag=True, help="依时间排序")
@@ -532,6 +533,9 @@ def ls(
     ctx,
     remotepaths,
     file_id,
+    share_id,
+    share_url,
+    password,
     desc,
     name,
     time,
@@ -573,35 +577,57 @@ def ls(
     if is_dir:
         sifters.append(IsDirSifter())
 
-    pwd = _pwd(ctx)
-    if not file_id and not remotepaths:
-        remotepaths = [pwd]
-    remotepaths = [join_path(pwd, r) for r in list(remotepaths)]
+    if share_id or share_url:
+        if not file_id and not remotepaths and "folder" not in (share_url or ""):
+            remotepaths = ["/"]
 
-    user_id, user_name = _recent_user_id_and_name(ctx)
+        _share.list_shared_files(
+            api,
+            *remotepaths,
+            share_id=share_id,
+            share_url=share_url,
+            password=password,
+            file_ids=file_id,
+            desc=desc,
+            name=name,
+            time=time,
+            size=size,
+            recursive=recursive,
+            sifters=sifters,
+            highlight=not no_highlight,
+            show_size=show_size,
+            show_date=show_date,
+            show_file_id=show_file_id,
+            show_absolute_path=show_absolute_path,
+            csv=csv,
+        )
+    else:
+        pwd = _pwd(ctx)
+        if not file_id and not remotepaths:
+            remotepaths = [pwd]
 
-    list_files(
-        api,
-        *remotepaths,
-        file_ids=file_id,
-        desc=desc,
-        name=name,
-        time=time,
-        size=size,
-        recursive=recursive,
-        sifters=sifters,
-        highlight=not no_highlight,
-        user_id=user_id,
-        user_name=user_name,
-        show_size=show_size,
-        show_date=show_date,
-        show_file_id=show_file_id,
-        show_hash=show_hash,
-        show_absolute_path=show_absolute_path,
-        show_dl_link=show_dl_link,
-        csv=csv,
-        only_dl_link=only_dl_link,
-    )
+        remotepaths = [join_path(pwd, r) for r in list(remotepaths)]
+
+        list_files(
+            api,
+            *remotepaths,
+            file_ids=file_id,
+            desc=desc,
+            name=name,
+            time=time,
+            size=size,
+            recursive=recursive,
+            sifters=sifters,
+            highlight=not no_highlight,
+            show_size=show_size,
+            show_date=show_date,
+            show_file_id=show_file_id,
+            show_hash=show_hash,
+            show_absolute_path=show_absolute_path,
+            show_dl_link=show_dl_link,
+            csv=csv,
+            only_dl_link=only_dl_link,
+        )
 
 
 @app.command()
@@ -816,6 +842,7 @@ def remove(ctx, remotepaths):
 @click.option("--file-id", "-i", multiple=True, type=str, help="文件 ID")
 @click.option("--outdir", "-o", nargs=1, type=str, default=".", help="指定下载本地目录，默认为当前目录")
 @click.option("--share-id", "--si", nargs=1, type=str, help="下载这个分享ID下的文件")
+@click.option("--share-url", "--su", nargs=1, type=str, help="下载这个分享url下的文件")
 @click.option("--password", "-p", type=str, help="链接密码，如果没有不用设置")
 @click.option("--recursive", "-R", is_flag=True, help="递归下载")
 @click.option(
@@ -869,6 +896,7 @@ def download(
     file_id,
     outdir,
     share_id,
+    share_url,
     password,
     recursive,
     from_index,
@@ -908,15 +936,16 @@ def download(
     else:
         encrypt_password = encrypt_password or _encrypt_password(ctx)
 
-    if share_id:
-        assert all([r.startswith("/") for r in remotepaths])
-        remotepaths = remotepaths or ["/"]
+    assert all([r.startswith("/") for r in remotepaths])
+
+    if share_id or share_url:
         _share.download_shared(
             api,
             remotepaths,
             file_id,
             outdir,
-            share_id,
+            share_id=share_id,
+            share_url=share_url,
             password=password,
             sifters=sifters,
             recursive=recursive,
@@ -952,6 +981,7 @@ def download(
 @click.argument("remotepaths", nargs=-1, type=str)
 @click.option("--file-id", "-i", multiple=True, type=str, help="文件 ID")
 @click.option("--share-id", "--si", nargs=1, type=str, help="下载这个分享ID下的文件")
+@click.option("--share-url", "--su", nargs=1, type=str, help="播放这个分享url下的文件")
 @click.option("--password", "-p", type=str, help="链接密码，如果没有不用设置")
 @click.option("--recursive", "-R", is_flag=True, help="递归播放")
 @click.option(
@@ -989,6 +1019,7 @@ def play(
     remotepaths,
     file_id,
     share_id,
+    share_url,
     password,
     recursive,
     from_index,
@@ -1022,7 +1053,12 @@ def play(
         sifters.append(ExcludeSifter(exclude_regex, regex=True))
 
     pwd = _pwd(ctx)
-    remotepaths = [join_path(pwd, r) for r in remotepaths]
+    if not file_id and not remotepaths and "folder" not in (share_url or ""):
+        if share_id or share_url:
+            remotepaths = ["/"]
+        else:
+            remotepaths = [pwd]
+            remotepaths = [join_path(pwd, r) for r in list(remotepaths)]
 
     local_server = ""
     if use_local_server:
@@ -1050,12 +1086,13 @@ def play(
         ps.start()
         time.sleep(1)
 
-    if share_id:
+    if share_id or share_url:
         _share.play_shared(
             api,
             remotepaths,
             file_ids=file_id,
             share_id=share_id,
+            share_url=share_url,
             password=password,
             sifters=sifters,
             recursive=recursive,
@@ -1068,7 +1105,6 @@ def play(
             out_cmd=out_cmd,
             local_server=local_server,
         )
-
     else:
         _play(
             api,
@@ -1287,106 +1323,14 @@ def cancelshared(ctx, share_ids):
 
 
 @app.command()
-@click.argument("share_id", nargs=1, type=str)
-@click.argument("remotepaths", nargs=-1, type=str)
+@click.argument("share_url_or_id", nargs=1, type=str)
+@click.argument("remotedir", nargs=1, type=str)
 @click.option("--file-id", "-i", multiple=True, type=str, help="文件 ID")
 @click.option("--password", "-p", type=str, help="链接密码，如果没有不用设置")
-@click.option("--desc", "-r", is_flag=True, help="逆序排列文件")
-@click.option("--name", "-n", is_flag=True, help="依名字排序")
-@click.option("--time", "-t", is_flag=True, help="依时间排序")
-@click.option("--size", "-s", is_flag=True, help="依文件大小排序")
-@click.option("--recursive", "-R", is_flag=True, help="递归列出文件")
-@click.option("--include", "-I", type=str, help="筛选包含这个字符串的文件")
-@click.option("--include-regex", "--IR", type=str, help="筛选包含这个正则表达式的文件")
-@click.option("--exclude", "-E", type=str, help="筛选 不 包含这个字符串的文件")
-@click.option("--exclude-regex", "--ER", type=str, help="筛选 不 包含这个正则表达式的文件")
-@click.option("--is-file", "-f", is_flag=True, help="筛选 非 目录文件")
-@click.option("--is-dir", "-d", is_flag=True, help="筛选目录文件")
-@click.option("--no-highlight", "--NH", is_flag=True, help="取消匹配高亮")
-@click.option("--show-size", "-S", is_flag=True, help="显示文件大小")
-@click.option("--show-date", "-D", is_flag=True, help="显示文件创建时间")
-@click.option("--show-file-id", "--ID", is_flag=True, help="显示文件 ID")
-@click.option("--show-absolute-path", "-A", is_flag=True, help="显示文件绝对路径")
-@click.option("--csv", is_flag=True, help="用 csv 格式显示，单行显示")
 @click.pass_context
 @handle_error
 @multi_user_do
-def listsharedpaths(
-    ctx,
-    share_id,
-    remotepaths,
-    file_id,
-    password,
-    desc,
-    name,
-    time,
-    size,
-    recursive,
-    include,
-    include_regex,
-    exclude,
-    exclude_regex,
-    is_file,
-    is_dir,
-    no_highlight,
-    show_size,
-    show_date,
-    show_file_id,
-    show_absolute_path,
-    csv,
-):
-    """列出其他用户分享链接中的文件"""
-
-    api = _recent_api(ctx)
-    if not api:
-        return
-
-    sifters = []
-    if include:
-        sifters.append(IncludeSifter(include, regex=False))
-    if include_regex:
-        sifters.append(IncludeSifter(include, regex=True))
-    if exclude:
-        sifters.append(ExcludeSifter(exclude, regex=False))
-    if exclude_regex:
-        sifters.append(ExcludeSifter(exclude_regex, regex=True))
-    if is_file:
-        sifters.append(IsFileSifter())
-    if is_dir:
-        sifters.append(IsDirSifter())
-
-    if not file_id and not remotepaths:
-        remotepaths = ["/"]
-
-    _share.list_shared_files(
-        api,
-        *remotepaths,
-        share_id=share_id,
-        password=password,
-        file_ids=file_id,
-        desc=desc,
-        name=name,
-        time=time,
-        size=size,
-        recursive=recursive,
-        sifters=sifters,
-        highlight=not no_highlight,
-        show_size=show_size,
-        show_date=show_date,
-        show_file_id=show_file_id,
-        show_absolute_path=show_absolute_path,
-        csv=csv,
-    )
-
-
-@app.command()
-@click.argument("shared_url_or_id", nargs=1, type=str)
-@click.argument("remotedir", nargs=1, type=str)
-@click.option("--password", "-p", type=str, help="链接密码，如果没有不用设置")
-@click.pass_context
-@handle_error
-@multi_user_do
-def save(ctx, shared_url_or_id, remotedir, password):
+def save(ctx, share_url_or_id, file_id, remotedir, password):
     """保存其他用户分享的链接"""
 
     api = _recent_api(ctx)
@@ -1396,15 +1340,20 @@ def save(ctx, shared_url_or_id, remotedir, password):
     pwd = _pwd(ctx)
     remotedir = join_path(pwd, remotedir)
 
-    shared_url = ""
+    share_url = ""
     share_id = ""
-    if "/s/" in shared_url_or_id:
-        shared_url = shared_url_or_id
+    if "/s/" in share_url_or_id:
+        share_url = share_url_or_id
     else:
-        share_id = shared_url_or_id
+        share_id = share_url_or_id
 
     _share.save_shared(
-        api, remotedir, shared_url=shared_url, share_id=share_id, password=password
+        api,
+        remotedir,
+        share_id=share_id,
+        share_url=share_url,
+        file_ids=file_id,
+        password=password,
     )
 
 
