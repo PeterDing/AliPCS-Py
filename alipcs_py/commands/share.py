@@ -46,26 +46,41 @@ def _extract_share_id(share_url: str) -> str:
     return m.group(1) if m else ""
 
 
-def save_shared(
+def _extract_file_id(share_url: str) -> str:
+    m = re.search(r"/folder/(\w+)", share_url)
+    return m.group(1) if m else ""
+
+
+def save_shared_by_url(
+    api: AliPCSApi, remotedir: str, share_url: str, password: str = ""
+):
+    share_id = _extract_share_id(share_url)
+    file_id = _extract_file_id(share_url)
+    file_ids = [file_id] if file_id else []
+
+    assert share_id
+
+    save_shared_by_file_ids(api, remotedir, share_id, file_ids, password=password)
+
+
+def save_shared_by_file_ids(
     api: AliPCSApi,
     remotedir: str,
-    shared_url: str = "",
-    share_id: str = "",
+    share_id: str,
+    file_ids: List[str],
     password: str = "",
 ):
-    assert remotedir.startswith("/"), "`remotedir` must be an absolute path"
-    assert shared_url or share_id
-
-    if not share_id:
-        share_id = _extract_share_id(shared_url)
+    assert share_id
 
     share_token = api.get_share_token(share_id, share_password=password)
 
-    shared_files_iter = api.list_path_iter(
-        "/", share_id=share_id, share_token=share_token
-    )
+    file_ids = file_ids or ["root"]
 
-    shared_files = deque(shared_files_iter)
+    sfs = api.meta(*file_ids, share_id=share_id, share_token=share_token)
+    for sf in sfs:
+        if not sf.path:
+            sf.path = sf.name
+    shared_files = deque(sfs)
 
     # Record the remotedir of each shared_file
     _remotedirs: Dict[str, str] = {}
@@ -114,10 +129,31 @@ def save_shared(
                 shared_files.extendleft(sub_files[::-1])
 
 
+def save_shared(
+    api: AliPCSApi,
+    remotedir: str,
+    share_id: str = "",
+    share_url: str = "",
+    file_ids: List[str] = [],
+    password: str = "",
+):
+    assert remotedir.startswith("/"), "`remotedir` must be an absolute path"
+
+    assert int(bool(share_id)) ^ int(
+        bool(share_url)
+    ), "`share_id` and `share_url` only can be given one"
+
+    if share_url:
+        save_shared_by_url(api, remotedir, share_url, password=password)
+    else:
+        save_shared_by_file_ids(api, remotedir, share_id, file_ids, password=password)
+
+
 def list_shared_files(
     api: AliPCSApi,
     *remotepaths: str,
     share_id: str = "",
+    share_url: str = "",
     password: str = "",
     file_ids: List[str] = [],
     desc: bool = False,
@@ -135,6 +171,18 @@ def list_shared_files(
     show_absolute_path: bool = False,
     csv: bool = False,
 ):
+    assert int(bool(share_id)) ^ int(
+        bool(share_url)
+    ), "`share_id` and `share_url` only can be given one"
+
+    if share_url:
+        share_id = _extract_share_id(share_url)
+        if not file_ids:
+            file_id = _extract_file_id(share_url)
+            file_ids = [file_id] if file_id else ["root"]
+
+    assert share_id
+
     share_token = api.get_share_token(share_id, share_password=password)
 
     list_files(
@@ -175,7 +223,8 @@ def download_shared(
     remotepaths: List[str],
     file_ids: List[str],
     localdir: str,
-    share_id: str,
+    share_id: str = "",
+    share_url: str = "",
     password: str = "",
     sifters: List[Sifter] = [],
     recursive: bool = False,
@@ -185,6 +234,18 @@ def download_shared(
     out_cmd: bool = False,
     encrypt_password: bytes = b"",
 ):
+    assert int(bool(share_id)) ^ int(
+        bool(share_url)
+    ), "`share_id` and `share_url` only can be given one"
+
+    if share_url:
+        share_id = _extract_share_id(share_url)
+        if not file_ids:
+            file_id = _extract_file_id(share_url)
+            file_ids = [file_id] if file_id else ["root"]
+
+    assert share_id
+
     share_token = api.get_share_token(share_id, share_password=password)
 
     download(
@@ -209,6 +270,7 @@ def play_shared(
     remotepaths: List[str],
     file_ids: List[str],
     share_id: str,
+    share_url: str = "",
     password: str = "",
     sifters: List[Sifter] = [],
     recursive: bool = False,
@@ -221,6 +283,18 @@ def play_shared(
     out_cmd: bool = False,
     local_server: str = "",
 ):
+    assert int(bool(share_id)) ^ int(
+        bool(share_url)
+    ), "`share_id` and `share_url` only can be given one"
+
+    if share_url:
+        share_id = _extract_share_id(share_url)
+        if not file_ids:
+            file_id = _extract_file_id(share_url)
+            file_ids = [file_id]
+
+    assert share_id
+
     share_token = api.get_share_token(share_id, share_password=password)
 
     play(
