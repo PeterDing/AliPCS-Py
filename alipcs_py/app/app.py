@@ -310,13 +310,6 @@ _ALIAS_DOC = "Command 别名:\n\n\b\n" + "\n".join(
     default=ACCOUNT_DATA_PATH,
     help="Account data file",
 )
-@click.option(
-    "--rapiduploadinfo-file",
-    "--rf",
-    type=str,
-    default=RAPIDUPLOADINFO_PATH,
-    help="秒传 sqlite3 文件",
-)
 @click.option("--users", "-u", type=str, default=None, help="用户名片段，用“,”分割")
 @click.pass_context
 def app(ctx, account_data_path, rapiduploadinfo_file, users):
