@@ -742,7 +742,7 @@ AliPCS-Py cancelshared [OPTIONS] [SHARE_IDS]...
 
 - 使用分享 ID
 
-  分享 ID 是红色这个字符串 https://www.aliyundrive.com/s/<span style="color:red;">DaNNsdvi9bi</span>
+  分享 ID 是这个加粗的字符串 https://www.aliyundrive.com/s/**_DaNNsdvi9bi_**
 
   ```
   AliPCS-Py ls /path --share-id SHARE_ID
