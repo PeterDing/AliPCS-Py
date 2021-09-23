@@ -99,7 +99,9 @@ def save_shared_by_file_ids(
             dest_pcs_files[rd] = api.makedir_path(rd)
         dest_pcs_file = dest_pcs_files[rd]
 
-        if not remotepath_exists(api, shared_file.name, rd):
+        if not shared_file.is_root() and not remotepath_exists(
+            api, shared_file.name, rd
+        ):
             api.transfer_shared_files(
                 [shared_file.file_id],
                 dest_pcs_file.file_id,
