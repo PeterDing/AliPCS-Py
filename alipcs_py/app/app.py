@@ -235,12 +235,6 @@ def _encrypt_password(ctx) -> bytes:
         return b""
 
 
-def _rapiduploadinfo_file(ctx) -> str:
-    """Return global `RapidUploadInfo`"""
-
-    return ctx.obj.rapiduploadinfo_file
-
-
 ALIAS = OrderedDict(
     **{
         # Account
@@ -312,9 +306,8 @@ _ALIAS_DOC = "Command 别名:\n\n\b\n" + "\n".join(
 )
 @click.option("--users", "-u", type=str, default=None, help="用户名片段，用“,”分割")
 @click.pass_context
-def app(ctx, account_data_path, rapiduploadinfo_file, users):
+def app(ctx, account_data_path, users):
     ctx.obj.account_manager = AccountManager.load_data(account_data_path)
-    ctx.obj.rapiduploadinfo_file = str(Path(rapiduploadinfo_file).expanduser())
     ctx.obj.users = [] if users is None else users.split(",")
 
 
@@ -1174,10 +1167,6 @@ def upload(
     pwd = _pwd(ctx)
     remotedir = join_path(pwd, remotedir)
 
-    rapiduploadinfo_file = _rapiduploadinfo_file(ctx)
-
-    user_id, user_name = _recent_user_id_and_name(ctx)
-
     from_to_list = from_tos(localpaths, remotedir)
     _upload(
         api,
@@ -1188,9 +1177,6 @@ def upload(
         max_workers=max_workers,
         ignore_existing=not no_ignore_existing,
         show_progress=not no_show_progress,
-        rapiduploadinfo_file=rapiduploadinfo_file,
-        user_id=user_id,
-        user_name=user_name,
     )
 
 
@@ -1237,10 +1223,6 @@ def sync(
     if encrypt_type != EncryptType.No.name and not encrypt_password:
         raise ValueError(f"Encrypting with {encrypt_type} must have a key")
 
-    rapiduploadinfo_file = _rapiduploadinfo_file(ctx)
-
-    user_id, user_name = _recent_user_id_and_name(ctx)
-
     _sync(
         api,
         localdir,
@@ -1249,9 +1231,6 @@ def sync(
         encrypt_type=getattr(EncryptType, encrypt_type),
         max_workers=max_workers,
         show_progress=not no_show_progress,
-        rapiduploadinfo_file=rapiduploadinfo_file,
-        user_id=user_id,
-        user_name=user_name,
     )
 
 
