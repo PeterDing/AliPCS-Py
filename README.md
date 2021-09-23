@@ -501,7 +501,15 @@ AliPCS-Py move [OPTIONS] [REMOTEPATHS]... REMOTEDIR
 ## 文件重命名
 
 ```
-AliPCS-Py rename [OPTIONS] SOURCE DEST
+AliPCS-Py rename [OPTIONS] REMOTEPATH NEW_NAME
+```
+
+e.g.
+
+重命名 `/path/to/far` to `/path/to/foo`
+
+```
+AliPCS-Py rename /path/to/far foo
 ```
 
 ### 选项
