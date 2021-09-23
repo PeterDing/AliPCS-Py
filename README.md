@@ -192,9 +192,9 @@ AliPCS-Py 目前支持用`refresh_token`登录。需要使用者在 https://www.
 2. 打开浏览器的开发者工具(如 Chrome DevTools)。
 3. 然后选择开发者工具的 Console 面板。输入 `JSON.parse(localStorage.token).refresh_token`，再回车，获取 `refresh_token`。
 
-![cookies](./imgs/refresh_token.png)
+![refresh_token](./imgs/refresh_token.png)
 
-现在找到了 cookies 和 bduss 值，我们可以用下面的命令添加一个用户。
+现在找到了 `refresh_token` 值，我们可以用下面的命令添加一个用户。
 
 交互添加：
 
@@ -400,6 +400,9 @@ AliPCS-Py ls -i file_id1 -i file_id2 -i ...
 | Option                     | Description                                           |
 | -------------------------- | ----------------------------------------------------- |
 | -i, --file-id TEXT         | 文件 ID                                               |
+| --share-id, --si TEXT      | 列出这个分享 ID 下的文件                              |
+| --share-url, --su TEXT     | 列出这个分享 url 下的文件                             |
+| -p, --password TEXT        | 分享链接密码，如果没有不用设置                        |
 | -r, --desc                 | 逆序排列文件                                          |
 | -n, --name                 | 依名字排序                                            |
 | -t, --time                 | 依时间排序                                            |
@@ -545,6 +548,9 @@ AliPCS-Py download -i file_id1 -i file_id2 -i ...
 | Option                                                 | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | -i, --file-id TEXT                                     | 文件 ID                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| --share-id, --si TEXT                                  | 下载这个分享 ID 下的文件                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| --share-url, --su TEXT                                 | 下载这个分享 url 下的文件                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| -p, --password TEXT                                    | 分享链接密码，如果没有不用设置                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | -o, --outdir TEXT                                      | 指定下载本地目录，默认为当前目录                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | -R, --recursive                                        | 递归下载                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | -f, --from-index INTEGER                               | 从所有目录中的第几个文件开始下载，默认为 0（第一个）                                                                                                                                                                                                                                                                                                                                                                                                           |
@@ -580,6 +586,9 @@ AliPCS-Py play -i file_id1 -i file_id2 -i ...
 | Option                        | Description                                          |
 | ----------------------------- | ---------------------------------------------------- |
 | -i, --file-id TEXT            | 文件 ID                                              |
+| --share-id, --si TEXT         | 播放这个分享 ID 下的文件                             |
+| --share-url, --su TEXT        | 播放这个分享 url 下的文件                            |
+| -p, --password TEXT           | 链接密码，如果没有不用设置                           |
 | -R, --recursive               | 递归播放                                             |
 | -f, --from-index INTEGER      | 从所有目录中的第几个文件开始播放，默认为 0（第一个） |
 | -I, --include TEXT            | 筛选包含这个字符串的文件                             |
@@ -675,8 +684,6 @@ AliPCS-Py sync [OPTIONS] LOCALDIR REMOTEDIR
 
 ## 分享文件
 
-**注意：使用这个命令需要 cookies 中含有 `STOKEN` 值。**
-
 ```
 AliPCS-Py share [OPTIONS] [REMOTEPATHS]...
 ```
@@ -708,35 +715,155 @@ AliPCS-Py cancelshared [OPTIONS] [SHARE_IDS]...
 
 ## 列出其他用户分享链接中的文件
 
-**注意：使用这个命令需要 cookies 中含有 `STOKEN` 值。**
+给 `ls` 命令加参数，我们可以列出其他用户分享链接中的文件。
 
-```
-AliPCS-Py listsharedpaths [OPTIONS] SHARED_URL
-```
+**注意: 这里 `remotepaths` 只能是绝对路径。**
+
+如果有分享密码，加上 `--password PASSWORD`。
+
+- 使用分享连接
+
+  ```
+  AliPCS-Py ls --share-url SHARE_URL
+
+  # e.g.
+
+  # 列出这个分享url的根目录
+  AliPCS-Py ls --share-url https://www.aliyundrive.com/s/DaNNsdvi9bi
+
+  # 递归列出这个分享url的文件
+  AliPCS-Py ls --share-url https://www.aliyundrive.com/s/DaNNsdvi9bi -R
+
+  # 列出这个分享url的指定目录
+  AliPCS-Py ls --share-url https://www.aliyundrive.com/s/DaNNsdvi9bi/folder/613397974b634251e0554d7cb56df3e46d473239
+  ```
+
+- 使用分享 ID
+
+  分享 ID 是红色这个字符串 https://www.aliyundrive.com/s/<span style="color:red;">DaNNsdvi9bi</span>
+
+  ```
+  AliPCS-Py ls /path --share-id SHARE_ID
+
+  # e.g.
+
+  # 列出这个分享ID的根目录
+  AliPCS-Py ls / --share-id DaNNsdvi9bi
+
+  # 列出这个分享ID下，文件名为 "613397974b634251e0554d7cb56df3e46d473239" 的文件
+  AliPCS-Py ls --file-id 613397974b634251e0554d7cb56df3e46d473239 --share-id DaNNsdvi9bi
+  ```
 
 ### 选项
 
-| Option                | Description                        |
-| --------------------- | ---------------------------------- |
-| -p, --password TEXT   | 链接密码，如果没有不用设置         |
-| --no-show-vcode, --NV | 不显示验证码，如果需要验证码则报错 |
+见 `ls` 命令。
+
+## 下载他人分享的文件
+
+使用 `--share-id` 或 `--share-url` 选项，`download` 命令可以直接下载他人分享的文件。
+
+```
+AliPCS-Py download /path --share-url SHARED_URL
+
+# or
+
+AliPCS-Py download /path --share-id SHARED_URL
+
+# or
+
+AliPCS-Py download --file-id FILE_ID --share-id SHARED_URL
+```
+
+- 使用分享连接
+
+  ```
+  # 下载这个分享url下的根目录中的文件
+  AliPCS-Py download --share-url https://www.aliyundrive.com/s/DaNNsdvi9bi
+
+  # 递归下载这个分享url下的所有的文件
+  AliPCS-Py download --share-url https://www.aliyundrive.com/s/DaNNsdvi9bi -R
+
+  # 下载这个分享url的指定目录
+  AliPCS-Py download --share-url https://www.aliyundrive.com/s/DaNNsdvi9bi/folder/613397974b634251e0554d7cb56df3e46d473239
+  ```
+
+- 使用分享 ID
+
+  ```
+  # 下载这个分享url下的根目录中的文件
+  AliPCS-Py download --share-id DaNNsdvi9bi
+
+  # 递归下载这个分享url下的所有的文件
+  AliPCS-Py download --share-id DaNNsdvi9bi -R
+
+  # 下载这个分享ID下，文件名为 "613397974b634251e0554d7cb56df3e46d473239" 的文件
+  AliPCS-Py download --file-id 613397974b634251e0554d7cb56df3e46d473239 --share-id DaNNsdvi9bi
+  ```
+
+### 选项
+
+见 `download` 命令。
+
+## 播放他人分享的文件
+
+使用 `--share-id` 或 `--share-url` 选项，`play` 命令可以直接播放他人分享的媒体文件。
+
+```
+AliPCS-Py play /path --share-url SHARED_URL
+
+# or
+
+AliPCS-Py play /path --share-id SHARED_URL
+
+# or
+
+AliPCS-Py play --file-id FILE_ID --share-id SHARED_URL
+```
+
+- 使用分享连接
+
+  ```
+  # 播放这个分享url下的根目录中的文件
+  AliPCS-Py play --share-url https://www.aliyundrive.com/s/DaNNsdvi9bi
+
+  # 递归播放这个分享url下的所有的文件
+  AliPCS-Py play --share-url https://www.aliyundrive.com/s/DaNNsdvi9bi -R
+
+  # 播放这个分享url的指定目录
+  AliPCS-Py play --share-url https://www.aliyundrive.com/s/DaNNsdvi9bi/folder/613397974b634251e0554d7cb56df3e46d473239
+  ```
+
+- 使用分享 ID
+
+  ```
+  # 播放这个分享url下的根目录中的文件
+  AliPCS-Py play --share-id DaNNsdvi9bi
+
+  # 递归播放这个分享url下的所有的文件
+  AliPCS-Py play --share-id DaNNsdvi9bi -R
+
+  # 播放这个分享ID下，文件名为 "613397974b634251e0554d7cb56df3e46d473239" 的文件
+  AliPCS-Py play --file-id 613397974b634251e0554d7cb56df3e46d473239 --share-id DaNNsdvi9bi
+  ```
+
+### 选项
+
+见 `play` 命令。
 
 ## 保存其他用户分享的链接
-
-**注意：使用这个命令需要 cookies 中含有 `STOKEN` 值。**
 
 保存其他用户分享的链接到远端目录。
 
 ```
-AliPCS-Py save [OPTIONS] SHARED_URL REMOTEDIR
+AliPCS-Py save [OPTIONS] SHARE_URL_OR_ID REMOTEDIR
 ```
 
 ### 选项
 
-| Option                | Description                        |
-| --------------------- | ---------------------------------- |
-| -p, --password TEXT   | 链接密码，如果没有不用设置         |
-| --no-show-vcode, --NV | 不显示验证码，如果需要验证码则报错 |
+| Option              | Description                    |
+| ------------------- | ------------------------------ |
+| -i, --file-id TEXT  | 文件 ID                        |
+| -p, --password TEXT | 分享链接密码，如果没有不用设置 |
 
 ## 开启 HTTP 服务
 
