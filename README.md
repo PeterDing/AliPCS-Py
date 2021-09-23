@@ -860,6 +860,8 @@ AliPCS-Py play --file-id FILE_ID --share-id SHARED_URL
 AliPCS-Py save [OPTIONS] SHARE_URL_OR_ID REMOTEDIR
 ```
 
+指定 `--file-id` 可以保存指定的文件。
+
 ### 选项
 
 | Option              | Description                    |
