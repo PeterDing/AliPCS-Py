@@ -505,7 +505,7 @@ def pwd(ctx):
 @click.option("--file-id", "-i", multiple=True, type=str, help="文件 ID")
 @click.option("--share-id", "--si", nargs=1, type=str, help="列出这个分享ID下的文件")
 @click.option("--share-url", "--su", nargs=1, type=str, help="列出这个分享url下的文件")
-@click.option("--password", "-p", type=str, help="链接密码，如果没有不用设置")
+@click.option("--password", "-p", type=str, help="分享链接密码，如果没有不用设置")
 @click.option("--desc", "-r", is_flag=True, help="逆序排列文件")
 @click.option("--name", "-n", is_flag=True, help="依名字排序")
 @click.option("--time", "-t", is_flag=True, help="依时间排序")
@@ -843,7 +843,7 @@ def remove(ctx, remotepaths):
 @click.option("--outdir", "-o", nargs=1, type=str, default=".", help="指定下载本地目录，默认为当前目录")
 @click.option("--share-id", "--si", nargs=1, type=str, help="下载这个分享ID下的文件")
 @click.option("--share-url", "--su", nargs=1, type=str, help="下载这个分享url下的文件")
-@click.option("--password", "-p", type=str, help="链接密码，如果没有不用设置")
+@click.option("--password", "-p", type=str, help="分享链接密码，如果没有不用设置")
 @click.option("--recursive", "-R", is_flag=True, help="递归下载")
 @click.option(
     "--from-index", "-f", type=int, default=0, help="从所有目录中的第几个文件开始下载，默认为0（第一个）"
@@ -980,9 +980,9 @@ def download(
 @app.command()
 @click.argument("remotepaths", nargs=-1, type=str)
 @click.option("--file-id", "-i", multiple=True, type=str, help="文件 ID")
-@click.option("--share-id", "--si", nargs=1, type=str, help="下载这个分享ID下的文件")
+@click.option("--share-id", "--si", nargs=1, type=str, help="播放这个分享ID下的文件")
 @click.option("--share-url", "--su", nargs=1, type=str, help="播放这个分享url下的文件")
-@click.option("--password", "-p", type=str, help="链接密码，如果没有不用设置")
+@click.option("--password", "-p", type=str, help="分享链接密码，如果没有不用设置")
 @click.option("--recursive", "-R", is_flag=True, help="递归播放")
 @click.option(
     "--from-index", "-f", type=int, default=0, help="从所有目录中的第几个文件开始播放，默认为0（第一个）"
@@ -1326,7 +1326,7 @@ def cancelshared(ctx, share_ids):
 @click.argument("share_url_or_id", nargs=1, type=str)
 @click.argument("remotedir", nargs=1, type=str)
 @click.option("--file-id", "-i", multiple=True, type=str, help="文件 ID")
-@click.option("--password", "-p", type=str, help="链接密码，如果没有不用设置")
+@click.option("--password", "-p", type=str, help="分享链接密码，如果没有不用设置")
 @click.pass_context
 @handle_error
 @multi_user_do
