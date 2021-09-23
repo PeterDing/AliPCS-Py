@@ -104,32 +104,31 @@ AliPCS-Py --help
 
 可以用下面的命令别名代替原来的命令名。
 
-| 别名 | 原名            |
-| ---- | --------------- |
-| w    | who             |
-| uu   | updateuser      |
-| su   | su              |
-| ul   | userlist        |
-| ua   | useradd         |
-| ep   | encryptpwd      |
-| ud   | userdel         |
-| l    | ls              |
-| f    | search          |
-| md   | mkdir           |
-| mv   | move            |
-| rn   | rename          |
-| cp   | copy            |
-| rm   | remove          |
-| d    | download        |
-| p    | play            |
-| u    | upload          |
-| sn   | sync            |
-| S    | share           |
-| sl   | shared          |
-| cs   | cancelshared    |
-| lsp  | listsharedpaths |
-| s    | save            |
-| sv   | server          |
+| 别名 | 原名         |
+| ---- | ------------ |
+| w    | who          |
+| uu   | updateuser   |
+| su   | su           |
+| ul   | userlist     |
+| ua   | useradd      |
+| ep   | encryptpwd   |
+| ud   | userdel      |
+| l    | ls           |
+| f    | search       |
+| md   | mkdir        |
+| mv   | move         |
+| rn   | rename       |
+| cp   | copy         |
+| rm   | remove       |
+| d    | download     |
+| p    | play         |
+| u    | upload       |
+| sn   | sync         |
+| S    | share        |
+| sl   | shared       |
+| cs   | cancelshared |
+| s    | save         |
+| sv   | server       |
 
 ## 对多个帐号进行相同操作
 
