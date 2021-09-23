@@ -181,7 +181,7 @@ def list_shared_files(
         share_id = _extract_share_id(share_url)
         if not file_ids:
             file_id = _extract_file_id(share_url)
-            file_ids = [file_id] if file_id else ["root"]
+            file_ids = [file_id] if file_id else []
 
     assert share_id
 
