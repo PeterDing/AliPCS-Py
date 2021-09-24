@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.2.3 - 2021-09-24
+
+### Fixed
+
+- 重复列出分享根目录。
+
+### Changed
+
+- `ls`, `download`, `play` 命令用于分享url或id时，必须指定路径或file id。
+
 ## v0.2.2 - 2021-09-23
 
 ### Fixed
