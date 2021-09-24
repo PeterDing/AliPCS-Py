@@ -567,6 +567,8 @@ def ls(
         if not file_id and not remotepaths and "folder" not in (share_url or ""):
             remotepaths = ["/"]
 
+        assert all([r.startswith("/") for r in remotepaths])
+
         _share.list_shared_files(
             api,
             *remotepaths,
@@ -922,9 +924,9 @@ def download(
     else:
         encrypt_password = encrypt_password or _encrypt_password(ctx)
 
-    assert all([r.startswith("/") for r in remotepaths])
-
     if share_id or share_url:
+        assert all([r.startswith("/") for r in remotepaths])
+
         _share.download_shared(
             api,
             remotepaths,
@@ -1038,14 +1040,6 @@ def play(
     if exclude_regex:
         sifters.append(ExcludeSifter(exclude_regex, regex=True))
 
-    pwd = _pwd(ctx)
-    if not file_id and not remotepaths and "folder" not in (share_url or ""):
-        if share_id or share_url:
-            remotepaths = ["/"]
-        else:
-            remotepaths = [pwd]
-            remotepaths = [join_path(pwd, r) for r in list(remotepaths)]
-
     local_server = ""
     if use_local_server:
         encrypt_password = encrypt_password or _encrypt_password(ctx)
@@ -1073,6 +1067,8 @@ def play(
         time.sleep(1)
 
     if share_id or share_url:
+        assert all([r.startswith("/") for r in remotepaths])
+
         _share.play_shared(
             api,
             remotepaths,
@@ -1092,6 +1088,8 @@ def play(
             local_server=local_server,
         )
     else:
+        pwd = _pwd(ctx)
+        remotepaths = [join_path(pwd, r) for r in list(remotepaths)]
         _play(
             api,
             remotepaths,

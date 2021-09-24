@@ -183,6 +183,9 @@ def list_shared_files(
             file_id = _extract_file_id(share_url)
             file_ids = [file_id] if file_id else []
 
+    if not remotepaths and not file_ids:
+        return
+
     assert share_id
 
     share_token = api.get_share_token(share_id, share_password=password)
@@ -244,7 +247,10 @@ def download_shared(
         share_id = _extract_share_id(share_url)
         if not file_ids:
             file_id = _extract_file_id(share_url)
-            file_ids = [file_id] if file_id else ["root"]
+            file_ids = [file_id] if file_id else []
+
+    if not remotepaths and not file_ids:
+        return
 
     assert share_id
 
@@ -293,7 +299,10 @@ def play_shared(
         share_id = _extract_share_id(share_url)
         if not file_ids:
             file_id = _extract_file_id(share_url)
-            file_ids = [file_id]
+            file_ids = [file_id] if file_id else []
+
+    if not remotepaths and not file_ids:
+        return
 
     assert share_id
 
