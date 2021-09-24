@@ -771,6 +771,8 @@ AliPCS-Py cancelshared [OPTIONS] [SHARE_IDS]...
 
 使用 `--share-id` 或 `--share-url` 选项，`download` 命令可以直接下载他人分享的文件。
 
+**注意: 这里必须指定下载绝对路径或 file id**
+
 ```
 AliPCS-Py download /path --share-url SHARED_URL
 
@@ -787,10 +789,10 @@ AliPCS-Py download --file-id FILE_ID --share-id SHARED_URL
 
   ```
   # 下载这个分享url下的根目录中的文件
-  AliPCS-Py download --share-url https://www.aliyundrive.com/s/DaNNsdvi9bi
+  AliPCS-Py download / --share-url https://www.aliyundrive.com/s/DaNNsdvi9bi
 
   # 递归下载这个分享url下的所有的文件
-  AliPCS-Py download --share-url https://www.aliyundrive.com/s/DaNNsdvi9bi -R
+  AliPCS-Py download / --share-url https://www.aliyundrive.com/s/DaNNsdvi9bi -R
 
   # 下载这个分享url的指定目录
   AliPCS-Py download --share-url https://www.aliyundrive.com/s/DaNNsdvi9bi/folder/613397974b634251e0554d7cb56df3e46d473239
@@ -800,10 +802,10 @@ AliPCS-Py download --file-id FILE_ID --share-id SHARED_URL
 
   ```
   # 下载这个分享url下的根目录中的文件
-  AliPCS-Py download --share-id DaNNsdvi9bi
+  AliPCS-Py download / --share-id DaNNsdvi9bi
 
   # 递归下载这个分享url下的所有的文件
-  AliPCS-Py download --share-id DaNNsdvi9bi -R
+  AliPCS-Py download / --share-id DaNNsdvi9bi -R
 
   # 下载这个分享ID下，文件名为 "613397974b634251e0554d7cb56df3e46d473239" 的文件
   AliPCS-Py download --file-id 613397974b634251e0554d7cb56df3e46d473239 --share-id DaNNsdvi9bi
@@ -816,6 +818,8 @@ AliPCS-Py download --file-id FILE_ID --share-id SHARED_URL
 ## 播放他人分享的文件
 
 使用 `--share-id` 或 `--share-url` 选项，`play` 命令可以直接播放他人分享的媒体文件。
+
+**注意: 这里必须指定下载绝对路径或 file id**
 
 ```
 AliPCS-Py play /path --share-url SHARED_URL
@@ -833,10 +837,10 @@ AliPCS-Py play --file-id FILE_ID --share-id SHARED_URL
 
   ```
   # 播放这个分享url下的根目录中的文件
-  AliPCS-Py play --share-url https://www.aliyundrive.com/s/DaNNsdvi9bi
+  AliPCS-Py play / --share-url https://www.aliyundrive.com/s/DaNNsdvi9bi
 
   # 递归播放这个分享url下的所有的文件
-  AliPCS-Py play --share-url https://www.aliyundrive.com/s/DaNNsdvi9bi -R
+  AliPCS-Py play / --share-url https://www.aliyundrive.com/s/DaNNsdvi9bi -R
 
   # 播放这个分享url的指定目录
   AliPCS-Py play --share-url https://www.aliyundrive.com/s/DaNNsdvi9bi/folder/613397974b634251e0554d7cb56df3e46d473239
