@@ -7,6 +7,10 @@ An AliPCS API and An App
 
 AliPCS-Py 是阿里云盘的非官方 api 和一个命令行运用程序。
 
+-------
+## 百度云盘 api 和 命令行客户端在 https://github.com/PeterDing/BaiduPCS-Py
+-------
+
 - [安装](#安装)
 - [更新](#更新)
 - [API](#API)
