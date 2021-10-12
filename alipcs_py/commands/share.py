@@ -16,6 +16,8 @@ from alipcs_py.commands.download import (
 )
 from alipcs_py.commands.play import play, Player, DEFAULT_PLAYER
 
+import requests
+
 from rich import print
 
 
@@ -41,6 +43,13 @@ def cancel_shared(api: AliPCSApi, *share_ids: str):
     api.cancel_shared(*share_ids)
 
 
+def _redirect(url: str) -> str:
+    if "alywp.net" not in url:
+        return url
+    resp = requests.get(url, allow_redirects=False)
+    return resp.headers.get("Location") or ""
+
+
 def _extract_share_id(share_url: str) -> str:
     m = re.search(r"/s/(\w+)", share_url)
     return m.group(1) if m else ""
@@ -54,6 +63,7 @@ def _extract_file_id(share_url: str) -> str:
 def save_shared_by_url(
     api: AliPCSApi, remotedir: str, share_url: str, password: str = ""
 ):
+    share_url = _redirect(share_url)
     share_id = _extract_share_id(share_url)
     file_id = _extract_file_id(share_url)
     file_ids = [file_id] if file_id else []
@@ -177,6 +187,8 @@ def list_shared_files(
         bool(share_url)
     ), "`share_id` and `share_url` only can be given one"
 
+    share_url = _redirect(share_url)
+
     if share_url:
         share_id = _extract_share_id(share_url)
         if not file_ids:
@@ -243,6 +255,8 @@ def download_shared(
         bool(share_url)
     ), "`share_id` and `share_url` only can be given one"
 
+    share_url = _redirect(share_url)
+
     if share_url:
         share_id = _extract_share_id(share_url)
         if not file_ids:
@@ -294,6 +308,8 @@ def play_shared(
     assert int(bool(share_id)) ^ int(
         bool(share_url)
     ), "`share_id` and `share_url` only can be given one"
+
+    share_url = _redirect(share_url)
 
     if share_url:
         share_id = _extract_share_id(share_url)
