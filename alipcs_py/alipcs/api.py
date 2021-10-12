@@ -12,6 +12,7 @@ from typing import (
 from threading import Lock
 from collections import defaultdict
 from copy import deepcopy
+from functools import partial
 
 from alipcs_py.common.io import RangeRequestIO, DEFAULT_MAX_CHUNK_SIZE
 from alipcs_py.alipcs.pcs import AliPCS
@@ -70,7 +71,7 @@ class AliPCSApi:
 
         # Map `share_id` to a `PathTree` for that shared link
         self._shared_path_tree: DefaultDict[str, PathTree] = defaultdict(
-            lambda: PathTree(self)
+            partial(PathTree, self)
         )
 
     @property
