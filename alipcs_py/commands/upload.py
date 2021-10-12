@@ -434,11 +434,11 @@ def upload_file_concurrently(
 
         reset_encrypt_io(encrypt_io)
 
-        def upload_slice(item):
+        def _upload_slice(item):
             if not item:
                 return
 
-            upload_url, io = item
+            io, upload_url = item
 
             # Retry upload until success
             retry(
@@ -454,8 +454,8 @@ def upload_file_concurrently(
                     _wait_start(),
                 ),
             )(api.upload_slice)(
-                upload_url,
                 io,
+                upload_url,
                 callback=functools.partial(callback_for_slice, upload_url),
             )
 
@@ -479,7 +479,7 @@ def upload_file_concurrently(
                 io = BytesIO(data or b"")
 
                 fut = executor.submit(
-                    sure_release, semaphore, upload_slice, (upload_url, io)
+                    sure_release, semaphore, _upload_slice, (io, upload_url)
                 )
                 futs.append(fut)
 
