@@ -7,9 +7,11 @@ An AliPCS API and An App
 
 AliPCS-Py 是阿里云盘的非官方 api 和一个命令行运用程序。
 
--------
+---
+
 ## 百度云盘 api 和 命令行客户端在 https://github.com/PeterDing/BaiduPCS-Py
--------
+
+---
 
 - [安装](#安装)
 - [更新](#更新)
@@ -613,7 +615,7 @@ AliPCS-Py play -i file_id1 -i file_id2 -i ...
 | --shuffle, --sf               | 随机播放                                             |
 | --ignore-ext, --IE            | 不用文件名后缀名来判断媒体文件                       |
 | --out-cmd, --OC               | 输出第三方播放器命令                                 |
-| -p, --player [mpv]            | 指定第三方播放器<br><br>默认为 mpv (https://mpv.io)  |
+| --pl, --player [mpv]          | 指定第三方播放器<br><br>默认为 mpv (https://mpv.io)  |
 | -s, --use-local-server        | 使用本地服务器播放。                                 |
 | --encrypt-password, --ep TEXT | 加密密码，默认使用用户设置的                         |
 
