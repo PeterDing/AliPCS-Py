@@ -262,6 +262,8 @@ ALIAS = OrderedDict(
         "sl": "shared",
         "cs": "cancelshared",
         "s": "save",
+        # Server
+        "sv": "server",
     }
 )
 
@@ -980,8 +982,8 @@ def download(
 @click.option("--exclude", "-E", type=str, help="筛选 不 包含这个字符串的文件")
 @click.option("--exclude-regex", "--ER", type=str, help="筛选 不 包含这个正则表达式的文件")
 @click.option(
-    "-p",
     "--player",
+    "--pl",
     type=click.Choice([d.name for d in Player]),
     default=DEFAULT_PLAYER.name,
     help="""指定第三方播放器
