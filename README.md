@@ -641,9 +641,11 @@ AliPCS-Py upload [OPTIONS] [LOCALPATHS]... REMOTEDIR
 AliPCS-Py upload --upload-type Many [OPTIONS] [LOCALPATHS]... REMOTEDIR
 ```
 
-`--upload-type One`: 一次只上传一个文件，但同时上传文件的多个分片。
+<del>`--upload-type One`: 一次只上传一个文件，但同时上传文件的多个分片。</del>
 
-适合大多数文件长度大于 1G 以上的情况。
+<del>适合大多数文件长度大于 1G 以上的情况。</del>
+
+**阿里网盘不支持单文件并发上传。`upload --upload-type One` 失效**
 
 ```
 AliPCS-Py upload --upload-type One [OPTIONS] [LOCALPATHS]... REMOTEDIR
@@ -665,14 +667,14 @@ AliPCS-Py upload --max-workers 4 [OPTIONS] [LOCALPATHS]... REMOTEDIR
 
 ### 选项
 
-| Option                                                     | Description                                                                                |
-| ---------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| -t, --upload-type [One \| Many]                            | 上传方式，Many (默认): 同时上传多个文件，One: 一次只上传一个文件，但同时上传文件的多个分片 |
-| --encrypt-password, --ep TEXT                              | 加密密码，默认使用用户设置的                                                               |
-| -e, --encrypt-type [No \| Simple \| ChaCha20 \| AES256CBC] | 文件加密方法，默认为 No 不加密                                                             |
-| -w, --max-workers INTEGER                                  | 同时上传文件连接数量，默认为 CPU 核数                                                      |
-| --no-ignore-existing, --NI                                 | 上传已经存在的文件                                                                         |
-| --no-show-progress, --NP                                   | 不显示上传进度                                                                             |
+| Option                                                     | Description                             |
+| ---------------------------------------------------------- | --------------------------------------- |
+| -t, --upload-type [One \| Many]                            | 上传方式，Many (默认): 同时上传多个文件 |
+| --encrypt-password, --ep TEXT                              | 加密密码，默认使用用户设置的            |
+| -e, --encrypt-type [No \| Simple \| ChaCha20 \| AES256CBC] | 文件加密方法，默认为 No 不加密          |
+| -w, --max-workers INTEGER                                  | 同时上传文件连接数量，默认为 CPU 核数   |
+| --no-ignore-existing, --NI                                 | 上传已经存在的文件                      |
+| --no-show-progress, --NP                                   | 不显示上传进度                          |
 
 ## 同步本地目录到远端
 

@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.2.5 - 2022-01-15
+
+### Updated
+
+- 更新依赖。
+
+### Changed
+
+- 阿里网盘不支持单文件并发上传。`upload --upload-type One` 失效。
+
 ## v0.2.4 - 2021-10-12
 
 ### Added
