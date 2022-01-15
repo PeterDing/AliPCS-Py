@@ -1121,7 +1121,11 @@ def play(
     "-t",
     type=click.Choice([t.name for t in UploadType]),
     default=UploadType.Many.name,
-    help="上传方式，Many: 同时上传多个文件，One: 一次只上传一个文件，但同时上传文件的多个分片",
+    help=(
+        "上传方式，Many: 同时上传多个文件，"
+        "One: 一次只上传一个文件，但同时上传文件的多个分片 "
+        "(阿里网盘不支持单文件并发上传。`upload --upload-type One` 失效)"
+    ),
 )
 @click.option(
     "--encrypt-password", "--ep", type=str, default=None, help="加密密码，默认使用用户设置的"
@@ -1153,6 +1157,9 @@ def upload(
     no_show_progress,
 ):
     """上传文件"""
+
+    if upload_type == UploadType.One.name:
+        raise ValueError("阿里网盘不支持单文件并发上传。`upload --upload-type One` 失效")
 
     # Keyboard listener start
     keyboard_listener_start()
