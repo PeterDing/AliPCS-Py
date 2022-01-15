@@ -16,7 +16,7 @@ from alipcs_py.commands.download import (
 )
 from alipcs_py.commands.play import play, Player, DEFAULT_PLAYER
 
-import requests
+import requests  # type: ignore
 
 from rich import print
 
@@ -180,6 +180,7 @@ def list_shared_files(
     show_size: bool = False,
     show_date: bool = False,
     show_file_id: bool = False,
+    show_hash: bool = False,
     show_absolute_path: bool = False,
     csv: bool = False,
 ):
@@ -220,6 +221,7 @@ def list_shared_files(
         show_size=show_size,
         show_date=show_date,
         show_file_id=show_file_id,
+        show_hash=show_hash,
         show_absolute_path=show_absolute_path,
         csv=csv,
     )

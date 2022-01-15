@@ -588,6 +588,7 @@ def ls(
             show_size=show_size,
             show_date=show_date,
             show_file_id=show_file_id,
+            show_hash=show_hash,
             show_absolute_path=show_absolute_path,
             csv=csv,
         )
