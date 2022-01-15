@@ -5,7 +5,7 @@ import math
 import time
 import threading
 
-import requests
+import requests  # type: ignore
 from requests_toolbelt import MultipartEncoder, MultipartEncoderMonitor
 
 from alipcs_py.common.date import (

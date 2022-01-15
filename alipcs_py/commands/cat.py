@@ -3,7 +3,7 @@ from typing import Optional
 from alipcs_py.alipcs import AliPCSApi
 from alipcs_py.commands.display import display_blocked_remotepath
 
-import chardet
+import chardet  # type: ignore
 
 
 def cat(
