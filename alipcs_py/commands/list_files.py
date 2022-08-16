@@ -19,7 +19,6 @@ def list_file(
     remotepath: str,
     file_id: str = None,
     share_id: str = None,
-    share_token: str = None,
     desc: bool = False,
     name: bool = False,
     time: bool = False,
@@ -44,9 +43,9 @@ def list_file(
 ):
     pcs_file: Optional[PcsFile]
     if file_id:
-        pcs_file = api.meta(file_id, share_id=share_id, share_token=share_token)[0]
+        pcs_file = api.meta(file_id, share_id=share_id)[0]
     else:
-        pcs_file = api.path(remotepath, share_id=share_id, share_token=share_token)
+        pcs_file = api.path(remotepath, share_id=share_id)
     if not pcs_file:
         return
 
@@ -56,7 +55,6 @@ def list_file(
             remotepath,
             file_id=pcs_file.file_id,
             share_id=share_id,
-            share_token=share_token,
             desc=desc,
             name=name,
             time=time,
@@ -100,7 +98,6 @@ def list_file(
                     join_path(remotepath, pcs_file.name),
                     file_id=pcs_file.file_id,
                     share_id=share_id,
-                    share_token=share_token,
                     desc=desc,
                     name=name,
                     time=time,
@@ -130,7 +127,6 @@ def list_files(
     *remotepaths: str,
     file_ids: List[str] = [],
     share_id: str = None,
-    share_token: str = None,
     desc: bool = False,
     name: bool = False,
     time: bool = False,
@@ -158,7 +154,6 @@ def list_files(
             api,
             rp,
             share_id=share_id,
-            share_token=share_token,
             desc=desc,
             name=name,
             time=time,
@@ -188,7 +183,6 @@ def list_files(
             "",
             file_id=file_id,
             share_id=share_id,
-            share_token=share_token,
             desc=desc,
             name=name,
             time=time,

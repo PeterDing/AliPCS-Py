@@ -14,9 +14,9 @@ from alipcs_py.commands.download import USER_AGENT
 from alipcs_py.commands.errors import CommandError
 from alipcs_py.common.file_type import MEDIA_EXTS
 
-_print = print
-
 from rich import print
+
+_print = __builtins__["print"]  # type: ignore
 
 
 def _with_media_ext(path: str) -> bool:
@@ -113,7 +113,6 @@ def play_file(
     api: AliPCSApi,
     pcs_file: PcsFile,
     share_id: str = None,
-    share_token: str = None,
     player: Player = DEFAULT_PLAYER,
     player_params: List[str] = [],
     quiet: bool = False,
@@ -132,10 +131,8 @@ def play_file(
     use_local_server = bool(local_server)
 
     if share_id:
-        assert share_token, "Need share_token"
-
         use_local_server = False
-        url = api.shared_file_download_url(pcs_file.file_id, share_id, share_token)
+        url = api.shared_file_download_url(pcs_file.file_id, share_id)
     elif use_local_server:
         url = f"{local_server}{quote(pcs_file.path)}"
         print("url:", url)
@@ -158,7 +155,6 @@ def play_dir(
     api: AliPCSApi,
     pcs_file: PcsFile,
     share_id: str = None,
-    share_token: str = None,
     sifters: List[Sifter] = [],
     recursive: bool = False,
     from_index: int = 0,
@@ -170,9 +166,7 @@ def play_dir(
     out_cmd: bool = False,
     local_server: str = "",
 ):
-    remotefiles = list(
-        api.list_iter(pcs_file.file_id, share_id=share_id, share_token=share_token)
-    )
+    remotefiles = list(api.list_iter(pcs_file.file_id, share_id=share_id))
     remotefiles = sift(remotefiles, sifters, recursive=recursive)
 
     if shuffle:
@@ -185,7 +179,6 @@ def play_dir(
                 api,
                 rp,
                 share_id=share_id,
-                share_token=share_token,
                 player=player,
                 player_params=player_params,
                 quiet=quiet,
@@ -199,7 +192,6 @@ def play_dir(
                     api,
                     rp,
                     share_id=share_id,
-                    share_token=share_token,
                     sifters=sifters,
                     recursive=recursive,
                     from_index=from_index,
@@ -218,7 +210,6 @@ def play(
     remotepaths: List[str],
     file_ids: List[str],
     share_id: str = None,
-    share_token: str = None,
     sifters: List[Sifter] = [],
     recursive: bool = False,
     from_index: int = 0,
@@ -241,7 +232,7 @@ def play(
         rg.shuffle(remotepaths)
 
     for rp in remotepaths:
-        rpf = api.path(rp, share_id=share_id, share_token=share_token)
+        rpf = api.path(rp, share_id=share_id)
         if not rpf:
             print(f"[yellow]WARNING[/yellow]: `{rp}` does not exist.")
             continue
@@ -251,7 +242,6 @@ def play(
                 api,
                 rpf,
                 share_id=share_id,
-                share_token=share_token,
                 player=player,
                 player_params=player_params,
                 quiet=quiet,
@@ -264,7 +254,6 @@ def play(
                 api,
                 rpf,
                 share_id=share_id,
-                share_token=share_token,
                 sifters=sifters,
                 recursive=recursive,
                 from_index=from_index,
@@ -278,7 +267,7 @@ def play(
             )
 
     for file_id in file_ids:
-        rpf = api.meta(file_id, share_id=share_id, share_token=share_token)[0]
+        rpf = api.meta(file_id, share_id=share_id)[0]
         if not rpf:
             print(f"[yellow]WARNING[/yellow]: file_id `{file_id}` does not exist.")
             continue
@@ -288,7 +277,6 @@ def play(
                 api,
                 rpf,
                 share_id=share_id,
-                share_token=share_token,
                 player=player,
                 player_params=player_params,
                 quiet=quiet,
@@ -301,7 +289,6 @@ def play(
                 api,
                 rpf,
                 share_id=share_id,
-                share_token=share_token,
                 sifters=sifters,
                 recursive=recursive,
                 from_index=from_index,

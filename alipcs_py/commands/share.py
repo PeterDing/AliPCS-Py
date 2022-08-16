@@ -6,7 +6,12 @@ import re
 from alipcs_py.alipcs import AliPCSApi, PcsFile
 from alipcs_py.commands.list_files import list_files
 from alipcs_py.commands.sifter import Sifter
-from alipcs_py.commands.display import display_shared_links
+from alipcs_py.commands.display import (
+    display_invalid_shared_link_infos,
+    display_shared_files,
+    display_shared_link_infos,
+    display_shared_links,
+)
 from alipcs_py.commands.download import (
     download,
     Downloader,
@@ -15,6 +20,7 @@ from alipcs_py.commands.download import (
     DEFAULT_DOWNLOADPARAMS,
 )
 from alipcs_py.commands.play import play, Player, DEFAULT_PLAYER
+from alipcs_py.storage.store import AliPCSApiWithSharedStore, SharedStore
 
 import requests  # type: ignore
 
@@ -82,11 +88,11 @@ def save_shared_by_file_ids(
 ):
     assert share_id
 
-    share_token = api.get_share_token(share_id, share_password=password)
+    api.get_share_token(share_id, share_password=password)
 
     file_ids = file_ids or ["root"]
 
-    sfs = api.meta(*file_ids, share_id=share_id, share_token=share_token)
+    sfs = api.meta(*file_ids, share_id=share_id)
     for sf in sfs:
         if not sf.path:
             sf.path = sf.name
@@ -116,7 +122,6 @@ def save_shared_by_file_ids(
                 [shared_file.file_id],
                 dest_pcs_file.file_id,
                 share_id,
-                share_token,
                 auto_rename=False,
             )
             print(f"save: `{shared_file.path}` to `{rd}`")
@@ -128,10 +133,7 @@ def save_shared_by_file_ids(
             else:  # shared_file.is_dir
                 sub_files = list(
                     api.list_path_iter(
-                        shared_file.path,
-                        file_id=shared_file.file_id,
-                        share_id=share_id,
-                        share_token=share_token,
+                        shared_file.path, file_id=shared_file.file_id, share_id=share_id
                     )
                 )
 
@@ -201,14 +203,13 @@ def list_shared_files(
 
     assert share_id
 
-    share_token = api.get_share_token(share_id, share_password=password)
+    api.get_share_token(share_id, share_password=password)
 
     list_files(
         api,
         *remotepaths,
         file_ids=file_ids,
         share_id=share_id,
-        share_token=share_token,
         desc=desc,
         name=name,
         time=time,
@@ -270,7 +271,7 @@ def download_shared(
 
     assert share_id
 
-    share_token = api.get_share_token(share_id, share_password=password)
+    api.get_share_token(share_id, share_password=password)
 
     download(
         api,
@@ -278,7 +279,6 @@ def download_shared(
         file_ids=file_ids,
         localdir=localdir,
         share_id=share_id,
-        share_token=share_token,
         sifters=sifters,
         recursive=recursive,
         from_index=from_index,
@@ -324,14 +324,13 @@ def play_shared(
 
     assert share_id
 
-    share_token = api.get_share_token(share_id, share_password=password)
+    api.get_share_token(share_id, share_password=password)
 
     play(
         api,
         remotepaths,
         file_ids=file_ids,
         share_id=share_id,
-        share_token=share_token,
         sifters=sifters,
         recursive=recursive,
         from_index=from_index,
@@ -343,3 +342,20 @@ def play_shared(
         out_cmd=out_cmd,
         local_server=local_server,
     )
+
+
+def get_share_token(
+    api: AliPCSApi, share_id: str, share_url: str = "", password: str = ""
+) -> str:
+    assert int(bool(share_id)) ^ int(
+        bool(share_url)
+    ), "`share_id` and `share_url` only can be given one"
+
+    share_url = _redirect(share_url)
+
+    if share_url:
+        share_id = _extract_share_id(share_url)
+
+    assert share_id
+
+    return api.get_share_token(share_id, share_password=password)

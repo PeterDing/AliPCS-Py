@@ -270,7 +270,6 @@ def download_file(
     pcs_file: PcsFile,
     localdir: str,
     share_id: str = None,
-    share_token: str = None,
     downloader: Downloader = DEFAULT_DOWNLOADER,
     downloadparams: DownloadParams = DEFAULT_DOWNLOADPARAMS,
     out_cmd: bool = False,
@@ -296,11 +295,7 @@ def download_file(
 
     download_url: Optional[str]
     if share_id:
-        assert share_token, "Need share_token"
-
-        download_url = api.shared_file_download_url(
-            pcs_file.file_id, share_id, share_token
-        )
+        download_url = api.shared_file_download_url(pcs_file.file_id, share_id)
     else:
         download_url = pcs_file.download_url
 
@@ -320,7 +315,6 @@ def download_dir(
     pcs_file: PcsFile,
     localdir: str,
     share_id: str = None,
-    share_token: str = None,
     sifters: List[Sifter] = [],
     recursive: bool = False,
     from_index: int = 0,
@@ -329,9 +323,7 @@ def download_dir(
     out_cmd: bool = False,
     encrypt_password: bytes = b"",
 ):
-    remotefiles = list(
-        api.list_iter(pcs_file.file_id, share_id=share_id, share_token=share_token)
-    )
+    remotefiles = list(api.list_iter(pcs_file.file_id, share_id=share_id))
     remotefiles = sift(remotefiles, sifters, recursive=recursive)
     for rp in remotefiles[from_index:]:
         if rp.is_file:
@@ -340,7 +332,6 @@ def download_dir(
                 rp,
                 localdir,
                 share_id=share_id,
-                share_token=share_token,
                 downloader=downloader,
                 downloadparams=downloadparams,
                 out_cmd=out_cmd,
@@ -354,7 +345,6 @@ def download_dir(
                     rp,
                     str(_localdir),
                     share_id=share_id,
-                    share_token=share_token,
                     sifters=sifters,
                     recursive=recursive,
                     from_index=from_index,
@@ -371,7 +361,6 @@ def download(
     file_ids: List[str],
     localdir: str,
     share_id: str = None,
-    share_token: str = None,
     sifters: List[Sifter] = [],
     recursive: bool = False,
     from_index: int = 0,
@@ -399,7 +388,7 @@ def download(
     )
 
     for rp in remotepaths:
-        rpf = api.path(rp, share_id=share_id, share_token=share_token)
+        rpf = api.path(rp, share_id=share_id)
         if not rpf:
             print(f"[yellow]WARNING[/yellow]: `{rp}` does not exist.")
             continue
@@ -410,7 +399,6 @@ def download(
                 rpf,
                 localdir,
                 share_id=share_id,
-                share_token=share_token,
                 downloader=downloader,
                 downloadparams=downloadparams,
                 out_cmd=out_cmd,
@@ -423,7 +411,6 @@ def download(
                 rpf,
                 _localdir,
                 share_id=share_id,
-                share_token=share_token,
                 sifters=sifters,
                 recursive=recursive,
                 from_index=from_index,
@@ -434,7 +421,7 @@ def download(
             )
 
     for file_id in file_ids:
-        rpf = api.meta(file_id, share_id=share_id, share_token=share_token)[0]
+        rpf = api.meta(file_id, share_id=share_id)[0]
         if not rpf:
             print(f"[yellow]WARNING[/yellow]: file_id `{file_id}` does not exist.")
             continue
@@ -445,7 +432,6 @@ def download(
                 rpf,
                 localdir,
                 share_id=share_id,
-                share_token=share_token,
                 downloader=downloader,
                 downloadparams=downloadparams,
                 out_cmd=out_cmd,
@@ -458,7 +444,6 @@ def download(
                 rpf,
                 _localdir,
                 share_id=share_id,
-                share_token=share_token,
                 sifters=sifters,
                 recursive=recursive,
                 from_index=from_index,
