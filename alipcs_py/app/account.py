@@ -1,29 +1,22 @@
 from typing import Optional, List, Dict
 from dataclasses import dataclass
 from pathlib import Path
-from glob import glob
-import os
 import pickle
 
 from alipcs_py.alipcs import AliPCSApi, PcsUser
-from alipcs_py.common.path import PathType, join_path, is_dir
-from alipcs_py.commands.env import (
-    ACCOUNT_DATA_PATH,
-    ACCOUNT_DATA_FILE_PREFIX,
-    ACCOUNT_DATA_FILE_SUFFIX,
-)
+from alipcs_py.common.path import PathType, join_path
 
 
 @dataclass
 class Account:
     user: PcsUser
 
+    # Account Name which can be set by hand
+    account_name: str = ""
+
     # current working directory
     pwd: str = "/"
     encrypt_password: Optional[str] = None
-
-    # The path to store the account
-    path: Optional[str] = None
 
     # Is the account is used now
     on: bool = False
@@ -59,13 +52,19 @@ class Account:
 
     @staticmethod
     def from_refresh_token(
-        refresh_token: str, access_token: str = "", expire_time: int = 0
+        refresh_token: str,
+        access_token: str = "",
+        expire_time: int = 0,
+        account_name: str = "",
     ) -> "Account":
         api = AliPCSApi(
             refresh_token, access_token=access_token, expire_time=expire_time
         )
         user = api.user_info()
-        return Account(user)
+        return Account(
+            user,
+            account_name or user.user_id,  # Default use `user_id`
+        )
 
 
 class AccountManager:
@@ -75,44 +74,37 @@ class AccountManager:
     """
 
     def __init__(self, data_path: Optional[PathType] = None):
-        self._accounts: Dict[str, Account] = {}  # user_id (int) -> Account
-        self._who: Optional[str] = None  # user_id (int)
+        self._accounts: Dict[str, Account] = {}  # user_id (str) -> Account
+        self._who: Optional[str] = None  # user_id (str)
         self._data_path = data_path
 
     @staticmethod
     def load_data(data_path: PathType) -> "AccountManager":
-        data_path = Path(data_path).expanduser()
-        am = AccountManager(data_path=data_path)
-
-        account: Account
-        if is_dir(data_path):
-            template = (
-                join_path(data_path, ACCOUNT_DATA_FILE_PREFIX)
-                + "*"
-                + ACCOUNT_DATA_FILE_SUFFIX
-            )
-            for path in glob(template):
-                try:
-                    account = pickle.load(open(path, "rb"))
-                    assert account.user.user_id
-                    am._accounts[account.user.user_id] = account
-                    if account.on:
-                        am._who = account.user.user_id
-                except Exception:
-                    pass
-        else:
-            account = pickle.load(open(data_path, "rb"))
-            assert account.user.user_id
-            am._accounts[account.user.user_id] = account
-            am._who = account.user.user_id
-
-        return am
+        try:
+            data_path = Path(data_path).expanduser()
+            am = pickle.load(data_path.open("rb"))
+            return am
+        except Exception:
+            return AccountManager(data_path=data_path)
 
     @property
     def accounts(self) -> List[Account]:
         """All accounts"""
 
         return list(self._accounts.values())
+
+    def set_account_name(self, account_name: str, user_id: Optional[str] = None):
+        """Set account name"""
+
+        user_id = user_id or self._who
+
+        assert user_id, "No recent user"
+
+        account = self._accounts.get(user_id)
+
+        assert account
+
+        account.account_name = account_name
 
     def set_encrypt_password(self, encrypt_password: Optional[str] = None):
         """Set encryption key"""
@@ -191,23 +183,12 @@ class AccountManager:
             else:
                 account.on = False
 
-    def useradd(self, user: PcsUser):
-        """Add an user to data"""
+    def add_account(self, account: Account):
+        """Add an account to the manager"""
 
-        assert user.user_id
-        assert user.refresh_token
+        self._accounts[account.user.user_id] = account
 
-        account = Account(user)
-        account.path = (
-            join_path(ACCOUNT_DATA_PATH, ACCOUNT_DATA_FILE_PREFIX)
-            + user.user_id
-            + ACCOUNT_DATA_FILE_SUFFIX
-        )
-
-        self._accounts[user.user_id] = account
-        self._switch(user.user_id)
-
-    def userdel(self, user_id: str):
+    def delete_account(self, user_id: str):
         """Delete a user
 
         Args:
@@ -215,24 +196,18 @@ class AccountManager:
         """
 
         if user_id in self._accounts:
-            account = self._accounts.pop(user_id)
-            if account.path:
-                os.remove(account.path)
-
+            del self._accounts[user_id]
         if user_id == self._who:
             self._who = None
 
-    def save(self, user_id: Optional[str] = None):
-        """Serialize the reccent used account to local path"""
+    def save(self, data_path: Optional[PathType] = None):
+        """Serialize to local path"""
 
-        user_id = user_id or self._who
+        data_path = data_path or self._data_path
+        assert data_path, "No data path"
 
-        assert user_id
-
-        account = self._accounts[user_id]
-        assert account.path
-        data_path = Path(account.path)
+        data_path = Path(data_path).expanduser()
         if not data_path.parent.exists():
             data_path.parent.mkdir(parents=True)
 
-        pickle.dump(account, open(data_path, "wb"))
+        pickle.dump(self, open(data_path, "wb"))
