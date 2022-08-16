@@ -1,7 +1,7 @@
 from typing import Optional, List, Dict, Any
 from dataclasses import dataclass
 from collections import namedtuple
-
+import time
 
 from alipcs_py.common.date import iso_8601_to_timestamp
 
@@ -246,6 +246,8 @@ class PcsPreparedFile:
 
 @dataclass
 class PcsSharedLink:
+    """The shared link by the signin user"""
+
     share_url: str
     file_id: str
     file_id_list: List[str]
@@ -309,6 +311,82 @@ class PcsSharedLink:
         return bool(self.share_pwd)
 
 
+@dataclass
+class PcsSharedLinkInfo:
+    """The shared link by anyone"""
+
+    share_id: str
+    share_pwd: Optional[str] = None
+    share_name: Optional[str] = None
+    display_name: Optional[str] = None
+    file_count: Optional[str] = None
+    file_infos: Optional[str] = None
+    expiration: Optional[int] = None
+    updated_at: Optional[int] = None
+    vip: Optional[str] = None
+    avatar: Optional[str] = None
+    is_following_creator: Optional[str] = None
+    creator_id: Optional[str] = None
+    creator_name: Optional[str] = None
+    creator_phone: Optional[str] = None
+
+    @staticmethod
+    def from_(info) -> "PcsSharedLinkInfo":
+        updated_at = None
+        if "updated_at" in info:
+            updated_at = iso_8601_to_timestamp(info["updated_at"])
+        expiration = None
+        if info.get("expiration"):
+            expiration = iso_8601_to_timestamp(info["expiration"])
+
+        return PcsSharedLinkInfo(
+            share_id=info.get("share_id"),
+            share_pwd=info.get("share_pwd"),
+            share_name=info.get("share_name"),
+            display_name=info.get("display_name"),
+            file_count=info.get("file_count"),
+            file_infos=info.get("file_infos"),
+            expiration=expiration,
+            updated_at=updated_at,
+            vip=info.get("vip"),
+            avatar=info.get("avatar"),
+            is_following_creator=info.get("is_following_creator"),
+            creator_id=info.get("creator_id"),
+            creator_name=info.get("creator_name"),
+            creator_phone=info.get("creator_phone"),
+        )
+
+    @property
+    def share_url(self) -> str:
+        return "https://www.aliyundrive.com/s/" + self.share_id
+
+
+@dataclass
+class SharedAuth:
+    """The shared link auth by anyone"""
+
+    share_id: str
+    share_password: str
+    share_token: str
+    expire_time: float
+    expires_in: int
+    info: Any
+
+    @staticmethod
+    def from_(share_id: str, share_password: str, info: Any) -> "SharedAuth":
+        return SharedAuth(
+            share_id,
+            share_password,
+            share_token=info["share_token"],
+            expire_time=iso_8601_to_timestamp(info["expire_time"]),
+            expires_in=info["expires_in"],
+            info=info,
+        )
+
+    def is_expired(self) -> bool:
+        return time.time() >= self.expire_time
+
+
 FromTo = namedtuple("FromTo", ["from_", "to_"])
 
 
@@ -365,8 +443,28 @@ class PcsUserRights:
 
 
 @dataclass
+class PcsUserVip:
+    identity: str
+    icon: str
+    status: str
+    vip_list: List[Dict]
+
+    @staticmethod
+    def from_(info) -> "PcsUserVip":
+        return PcsUserVip(
+            identity=info.get("identity"),
+            icon=info.get("icon"),
+            status=info.get("status"),
+            vip_list=info.get("vipList"),
+        )
+
+    def is_vip(self) -> bool:
+        return self.identity == "vip"
+
+
+@dataclass
 class PcsUser:
-    user_id: Optional[str] = None
+    user_id: str
     default_drive_id: Optional[str] = None
     device_id: Optional[str] = None
     domain_id: Optional[str] = None
@@ -384,6 +482,7 @@ class PcsUser:
     avatar: Optional[str] = None
     personal_space_info: Optional[PcsSpace] = None
     personal_rights_info: Optional[PcsUserRights] = None
+    user_vip_info: Optional[PcsUserVip] = None
 
     created_at: Optional[int] = None
     updated_at: Optional[int] = None
@@ -405,7 +504,7 @@ class PcsUser:
             updated_at = info["updated_at"] // 1000
 
         return PcsUser(
-            user_id=info.get("user_id"),
+            user_id=info["user_id"],
             default_drive_id=info.get("default_drive_id"),
             device_id=info.get("device_id"),
             domain_id=info.get("domain_id"),
@@ -419,6 +518,7 @@ class PcsUser:
             personal_rights_info=PcsUserRights.from_(
                 info.get("personal_rights_info") or {}
             ),
+            user_vip_info=PcsUserVip.from_(info.get("user_vip_info") or {}),
             created_at=created_at,
             updated_at=updated_at,
             role=info.get("role"),
