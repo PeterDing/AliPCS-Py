@@ -38,11 +38,24 @@ def to_refresh_token(func):
             self = args[0]
 
             info = func(*args, **kwargs)
-            if info.get("code") == "AccessTokenInvalid":
+            code = info.get("code")
+            if code == "AccessTokenInvalid":
                 self.refresh()
                 continue
-            else:
-                return info
+            elif code == "ShareLinkTokenInvalid":
+                varnames = func.__code__.co_varnames
+                idx = varnames.index("share_id")
+                if idx < len(args):
+                    share_id = args[idx]
+                else:
+                    share_id = kwargs.get("share_id")
+
+                share_auth = self.__class__.SHARE_AUTHS.get(share_id)
+                if share_auth:
+                    share_auth.expire_time = 0.0
+                continue
+
+            return info
 
         raise parse_error("AccessTokenInvalid")
 

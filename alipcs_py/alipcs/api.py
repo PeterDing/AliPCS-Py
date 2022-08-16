@@ -13,14 +13,15 @@ from threading import Lock
 from collections import defaultdict
 from copy import deepcopy
 from functools import partial
+from alipcs_py.alipcs.errors import AliPCSError
 
 from alipcs_py.common.io import RangeRequestIO, DEFAULT_MAX_CHUNK_SIZE
 from alipcs_py.alipcs.pcs import AliPCS
 from alipcs_py.alipcs.inner import (
     PcsFile,
     PcsPreparedFile,
-    PcsRapidUploadInfo,
     PcsSharedLink,
+    PcsSharedLinkInfo,
     PcsUser,
     PcsDownloadUrl,
 )
@@ -118,16 +119,14 @@ class AliPCSApi:
     def status(self) -> str:
         return self._alipcs.status
 
-    def meta(
-        self, *file_ids: str, share_id: str = None, share_token: str = None
-    ) -> List[PcsFile]:
+    def meta(self, *file_ids: str, share_id: str = None) -> List[PcsFile]:
         """Meta data of `remotepaths`"""
 
         pcs_files = [PcsFile.root() if fid == "root" else None for fid in file_ids]
         fids = [fid for fid in file_ids if fid != "root"]
 
         if fids:
-            info = self._alipcs.meta(*fids, share_id=share_id, share_token=share_token)
+            info = self._alipcs.meta(*fids, share_id=share_id)
             pfs = [PcsFile.from_(v.get("body")) for v in info["responses"]]
             j = 0
             for i in range(len(pcs_files)):
@@ -156,7 +155,6 @@ class AliPCSApi:
         self,
         file_id: str,
         share_id: str = None,
-        share_token: str = None,
         desc: bool = False,
         name: bool = False,
         time: bool = False,
@@ -171,7 +169,6 @@ class AliPCSApi:
         info = self._alipcs.list(
             file_id=file_id,
             share_id=share_id,
-            share_token=share_token,
             desc=desc,
             name=name,
             time=time,
@@ -188,7 +185,6 @@ class AliPCSApi:
         self,
         file_id: str,
         share_id: str = None,
-        share_token: str = None,
         desc: bool = False,
         name: bool = False,
         time: bool = False,
@@ -198,13 +194,12 @@ class AliPCSApi:
         url_expire_sec: int = 7200,
     ) -> Iterator[PcsFile]:
         next_marker = ""
-        pcs_file = self.meta(file_id, share_id=share_id, share_token=share_token)[0]
+        pcs_file = self.meta(file_id, share_id=share_id)[0]
         dirname = pcs_file.name
         while True:
             pcs_files, next_marker = self.list(
                 file_id,
                 share_id=share_id,
-                share_token=share_token,
                 desc=desc,
                 name=name,
                 time=time,
@@ -221,32 +216,24 @@ class AliPCSApi:
             if not next_marker:
                 return
 
-    def path(
-        self, remotepath: str, share_id: str = None, share_token: str = None
-    ) -> Optional[PcsFile]:
+    def path(self, remotepath: str, share_id: str = None) -> Optional[PcsFile]:
         if share_id:
             return self._shared_path_tree[share_id].search(
-                remotepath=remotepath, share_id=share_id, share_token=share_token
+                remotepath=remotepath, share_id=share_id
             )
         else:
             return self._path_tree.search(remotepath=remotepath)
 
-    def paths(
-        self, *remotepaths: str, share_id: str = None, share_token: str = None
-    ) -> List[Optional[PcsFile]]:
+    def paths(self, *remotepaths: str, share_id: str = None) -> List[Optional[PcsFile]]:
         """NOT support to list shared paths"""
 
-        return [
-            self.path(rp, share_id=share_id, share_token=share_token)
-            for rp in remotepaths
-        ]
+        return [self.path(rp, share_id=share_id) for rp in remotepaths]
 
     def list_path_iter(
         self,
         remotepath: str,
         file_id: str = None,
         share_id: str = None,
-        share_token: str = None,
         desc: bool = False,
         name: bool = False,
         time: bool = False,
@@ -256,7 +243,7 @@ class AliPCSApi:
         url_expire_sec: int = 7200,
     ) -> Iterator[PcsFile]:
         if not file_id:
-            pf = self.path(remotepath, share_id=share_id, share_token=share_token)
+            pf = self.path(remotepath, share_id=share_id)
             if not pf:
                 return
             file_id = pf.file_id
@@ -264,7 +251,6 @@ class AliPCSApi:
         for p in self.list_iter(
             file_id,
             share_id=share_id,
-            share_token=share_token,
             desc=desc,
             name=name,
             time=time,
@@ -281,7 +267,6 @@ class AliPCSApi:
         remotepath: str,
         file_id: str = None,
         share_id: str = None,
-        share_token: str = None,
         desc: bool = False,
         name: bool = False,
         time: bool = False,
@@ -295,7 +280,6 @@ class AliPCSApi:
                 remotepath,
                 file_id=file_id,
                 share_id=share_id,
-                share_token=share_token,
                 desc=desc,
                 name=name,
                 time=time,
@@ -516,6 +500,19 @@ class AliPCSApi:
         )
         return PcsSharedLink.from_(info)
 
+    def is_shared_valid(self, share_id: str) -> bool:
+        try:
+            self.shared_info(share_id)
+            return True
+        except AliPCSError as err:
+            if err.error_code in (
+                "ShareLink.Forbidden",
+                "ShareLink.Cancelled",
+                "ShareLink.Expired",
+            ):
+                return False
+            raise
+
     def list_shared(self, next_marker: str = "") -> Tuple[List[PcsSharedLink], str]:
         """List shared link on a page"""
 
@@ -540,8 +537,16 @@ class AliPCSApi:
         return ["code" not in v for v in info["responses"]]
 
     def get_share_token(self, share_id: str, share_password: str = "") -> str:
+        """Get share token"""
+
         info = self._alipcs.get_share_token(share_id, share_password=share_password)
         return info["share_token"]
+
+    def shared_info(self, share_id: str) -> PcsSharedLinkInfo:
+        """Get shared link info by anyone"""
+
+        info = self._alipcs.shared_info(share_id)
+        return PcsSharedLinkInfo.from_(info)
 
     # list_shared_files is an alias of list
     list_shared_files = list
@@ -551,30 +556,22 @@ class AliPCSApi:
         shared_file_ids: List[str],
         dest_id: str,
         share_id: str,
-        share_token: str,
         auto_rename: bool = False,
     ) -> List[PcsFile]:
         """Save the `shared_file_ids` to `dest_id`"""
 
         info = self._alipcs.transfer_shared_files(
-            shared_file_ids, dest_id, share_id, share_token, auto_rename=auto_rename
+            shared_file_ids, dest_id, share_id, auto_rename=auto_rename
         )
         return [PcsFile.from_(v["body"]) for v in info.get("responses", [])]
 
     def shared_file_download_url(
-        self,
-        shared_file_id: str,
-        share_id: str,
-        share_token: str,
-        expire_duration: int = 10 * 60,
+        self, shared_file_id: str, share_id: str, expire_duration: int = 10 * 60
     ) -> str:
         """Get shared file download link"""
 
         return self._alipcs.shared_file_download_url(
-            shared_file_id,
-            share_id,
-            share_token,
-            expire_duration=expire_duration,
+            shared_file_id, share_id, expire_duration=expire_duration
         )
 
     def user_info(self) -> PcsUser:
@@ -621,7 +618,6 @@ class AliPCSApi:
         self,
         shared_file_id: str,
         share_id: str,
-        share_token: str,
         expire_duration: int = 10 * 60,
         max_chunk_size: int = DEFAULT_MAX_CHUNK_SIZE,
         callback: Callable[..., None] = None,
@@ -632,7 +628,6 @@ class AliPCSApi:
         return self._alipcs.shared_file_stream(
             shared_file_id,
             share_id,
-            share_token,
             expire_duration=expire_duration,
             max_chunk_size=max_chunk_size,
             callback=callback,
@@ -696,11 +691,7 @@ class PathTree:
             return None
 
     def search(
-        self,
-        remotepath: str = "",
-        topdown: Iterable[str] = [],
-        share_id: str = None,
-        share_token: str = None,
+        self, remotepath: str = "", topdown: Iterable[str] = [], share_id: str = None
     ) -> Optional[PcsFile]:
         """Search the PcsFile which has remote path as `remotepath`
         or has the tree path `topdown`
@@ -710,21 +701,14 @@ class PathTree:
             assert remotepath.startswith("/")
             topdown = split_posix_path(remotepath)
 
-        node = self._dfs(
-            list(topdown), self.root, share_id=share_id, share_token=share_token
-        )
+        node = self._dfs(list(topdown), self.root, share_id=share_id)
         if node:
             return deepcopy(node.pcs_file)
         else:
             return None
 
     def _dfs(
-        self,
-        topdown: List[str],
-        root: _Node,
-        pull: bool = True,
-        share_id: str = None,
-        share_token: str = None,
+        self, topdown: List[str], root: _Node, pull: bool = True, share_id: str = None
     ) -> Optional[_Node]:
         """Search a node with the path `topdown` using depth first search"""
 
@@ -733,9 +717,7 @@ class PathTree:
 
         next_key = topdown[0]
         if next_key == "/":
-            return self._dfs(
-                topdown[1:], self.root, share_id=share_id, share_token=share_token
-            )
+            return self._dfs(topdown[1:], self.root, share_id=share_id)
 
         root_pcs_file = root.pcs_file
 
@@ -747,9 +729,7 @@ class PathTree:
             #         root.sub_nodes.pop(next_key)
 
             if pull and next_key not in root.sub_nodes:
-                for pf in self._api.list_iter(
-                    root_pcs_file.file_id, share_id=share_id, share_token=share_token
-                ):
+                for pf in self._api.list_iter(root_pcs_file.file_id, share_id=share_id):
                     if pf.name not in root.sub_nodes:
                         pf.path = join_path(root_pcs_file.path, pf.name)
                         new_node = _Node(pf.file_id, pf)
@@ -761,12 +741,7 @@ class PathTree:
             if next_key not in root.sub_nodes:
                 return None
 
-        return self._dfs(
-            topdown[1:],
-            root.sub_nodes[next_key],
-            share_id=share_id,
-            share_token=share_token,
-        )
+        return self._dfs(topdown[1:], root.sub_nodes[next_key], share_id=share_id)
 
     def pop(
         self, remotepath: str = "", topdown: Iterable[str] = []
