@@ -1,6 +1,5 @@
 from typing import Optional, Dict, List, Union, Any, Callable, IO
 from enum import Enum
-
 import math
 import time
 import threading
@@ -23,6 +22,7 @@ from alipcs_py.common.io import (
 from alipcs_py.common.cache import timeout_cache
 from alipcs_py.alipcs.errors import AliPCSError, parse_error, to_refresh_token
 from alipcs_py.alipcs.errors import assert_ok
+from alipcs_py.alipcs.inner import SharedAuth
 
 
 UPLOAD_CHUNK_SIZE = 10 * constant.OneM
@@ -69,6 +69,7 @@ class PcsNode(Enum):
 
     PersonalInfo = "v2/databox/get_personal_info"
     User = "v2/user/get"
+    UserVip = "business/v1.0/users/vip/info"
 
     def url(self) -> str:
         return f"{PCS_BAIDU_COM}/{self.value}"
@@ -80,6 +81,8 @@ _LOCK = threading.Lock()
 
 class AliPCS:
     """`AliPCS` provides pcs's apis which return raw json"""
+
+    SHARE_AUTHS: Dict[str, SharedAuth] = {}
 
     def __init__(
         self,
@@ -251,18 +254,18 @@ class AliPCS:
         self._role = info["role"]
         self._status = info["status"]
 
-    @assert_ok
-    @to_refresh_token
-    def meta(self, *file_ids: str, share_id: str = None, share_token: str = None):
+    def meta(self, *file_ids: str, share_id: str = None):
         assert "root" not in file_ids, '"root" has NOT meta info'
 
         headers = dict(PCS_HEADERS)
+
         if share_id:
+            share_token = self.share_token(share_id)
             assert share_token, "Need share_token"
 
             headers["x-share-token"] = share_token
 
-        requests = []
+        requests_ = []
         for file_id in file_ids:
             body = dict(
                 file_id=file_id,
@@ -279,9 +282,9 @@ class AliPCS:
                 headers={"Content-Type": "application/json"},
                 body=body,
             )
-            requests.append(req)
+            requests_.append(req)
 
-        return self.batch_operate(requests, resource="file", headers=headers)
+        return self.batch_operate(requests_, resource="file", headers=headers)
 
     def exists(self, file_id: str) -> bool:
         if file_id == "root":
@@ -326,7 +329,6 @@ class AliPCS:
         self,
         file_id: str,
         share_id: str = None,
-        share_token: str = None,
         desc: bool = False,
         name: bool = False,
         time: bool = False,
@@ -371,6 +373,7 @@ class AliPCS:
 
         headers = dict(PCS_HEADERS)
         if share_id:
+            share_token = self.share_token(share_id)
             assert share_token, "Need share_token"
 
             data["share_id"] = share_id
@@ -533,12 +536,12 @@ class AliPCS:
     @to_refresh_token
     def batch_operate(
         self,
-        requests: List[Dict[str, Any]],
+        requests_: List[Dict[str, Any]],
         resource: str = "file",
         headers: Optional[Dict[str, str]] = None,
     ):
         url = PcsNode.Batch.url()
-        data = dict(resource=resource, requests=requests)
+        data = dict(resource=resource, requests=requests_)
         resp = self._request(Method.Post, url, headers=headers, json=data)
         return resp.json()
 
@@ -556,7 +559,7 @@ class AliPCS:
         if self.is_file(dest_id):
             raise AliPCSError("The remote `dest_id` is a file. It must be a directory.")
 
-        requests = []
+        requests_ = []
         for source_id in source_ids:
             req = dict(
                 method="POST",
@@ -570,9 +573,9 @@ class AliPCS:
                     to_parent_file_id=dest_id,
                 ),
             )
-            requests.append(req)
+            requests_.append(req)
 
-        return self.batch_operate(requests, resource="file")
+        return self.batch_operate(requests_, resource="file")
 
     @assert_ok
     @to_refresh_token
@@ -593,7 +596,7 @@ class AliPCS:
         assert len(file_ids) > 1
 
         to_dir_id = file_ids[-1]
-        requests = []
+        requests_ = []
         for file_id in file_ids[:-1]:
             req = dict(
                 method="POST",
@@ -608,11 +611,11 @@ class AliPCS:
                     auto_rename=True,
                 ),
             )
-            requests.append(req)
-        return self.batch_operate(requests, resource="file")
+            requests_.append(req)
+        return self.batch_operate(requests_, resource="file")
 
     def remove(self, *file_ids: str):
-        requests = []
+        requests_ = []
         for file_id in file_ids:
             req = dict(
                 method="POST",
@@ -624,8 +627,8 @@ class AliPCS:
                     file_id=file_id,
                 ),
             )
-            requests.append(req)
-        return self.batch_operate(requests, resource="file")
+            requests_.append(req)
+        return self.batch_operate(requests_, resource="file")
 
     @assert_ok
     @to_refresh_token
@@ -682,7 +685,7 @@ class AliPCS:
         return resp.json()
 
     def cancel_shared(self, *share_ids: str):
-        requests = []
+        requests_ = []
         for share_id in share_ids:
             req = dict(
                 method="POST",
@@ -693,28 +696,51 @@ class AliPCS:
                     share_id=share_id,
                 ),
             )
-            requests.append(req)
+            requests_.append(req)
 
-        return self.batch_operate(requests, resource="file")
+        return self.batch_operate(requests_, resource="file")
 
     @assert_ok
     @to_refresh_token
     def get_share_token(self, share_id: str, share_password: str = ""):
         """Get share token"""
 
+        shared_auth = self.__class__.SHARE_AUTHS.get(share_id)
+        if shared_auth and not shared_auth.is_expired():
+            share_password = share_password or shared_auth.share_password
+            return shared_auth.info
+
         url = PcsNode.ShareToken.url()
         data = dict(share_id=share_id, share_pwd=share_password)
         resp = self._request(Method.Post, url, json=data)
-        return resp.json()
+
+        info = resp.json()
+        if info.get("share_token"):
+            # Store share password for refreshing share token
+            self.__class__.SHARE_AUTHS[share_id] = SharedAuth.from_(
+                share_id, share_password, info
+            )
+
+        return info
+
+    def share_token(self, share_id: str) -> str:
+        self.get_share_token(share_id)
+
+        shared_auth = self.__class__.SHARE_AUTHS[share_id]
+        return shared_auth.share_token
 
     @assert_ok
     @to_refresh_token
     def shared_info(self, share_id: str):
+        """Get shared items info"""
+
         url = PcsNode.SharedInfo.url()
         params = dict(share_id=share_id)
         data = dict(share_id=share_id)
         resp = self._request(Method.Post, url, params=params, json=data)
-        return resp.json()
+        info = resp.json()
+        info["share_id"] = share_id
+        return info
 
     # list_shared_files is an alias of list
     list_shared_files = list
@@ -724,12 +750,11 @@ class AliPCS:
         shared_file_ids: List[str],
         dest_id: str,
         share_id: str,
-        share_token: str,
         auto_rename: bool = False,
     ):
         """Transfer shared files to destination directory"""
 
-        requests = []
+        requests_ = []
         for file_id in shared_file_ids:
             req = dict(
                 method="POST",
@@ -744,12 +769,15 @@ class AliPCS:
                     to_parent_file_id=dest_id,
                 ),
             )
-            requests.append(req)
+            requests_.append(req)
+
+        share_token = self.share_token(share_id)
+        assert share_token, "Need share_token"
 
         headers = dict(PCS_HEADERS)
         headers["x-share-token"] = share_token
 
-        return self.batch_operate(requests, resource="file", headers=headers)
+        return self.batch_operate(requests_, resource="file", headers=headers)
 
     @assert_ok
     @to_refresh_token
@@ -757,7 +785,6 @@ class AliPCS:
         self,
         shared_file_id: str,
         share_id: str,
-        share_token: str,
         expire_duration: int = 10 * 60,
     ):
         url = PcsNode.SharedFileDownloadUrl.url()
@@ -766,6 +793,10 @@ class AliPCS:
             file_id=shared_file_id,
             share_id=share_id,
         )
+
+        share_token = self.share_token(share_id)
+        assert share_token, "Need share_token"
+
         headers = dict(PCS_HEADERS)
         headers["x-share-token"] = share_token
 
@@ -776,13 +807,11 @@ class AliPCS:
         self,
         shared_file_id: str,
         share_id: str,
-        share_token: str,
         expire_duration: int = 10 * 60,
     ) -> str:
         info = self._get_shared_file_download_url(
             shared_file_id,
             share_id,
-            share_token,
             expire_duration=expire_duration,
         )
         url = info["url"]
@@ -796,16 +825,18 @@ class AliPCS:
     @to_refresh_token
     def user_info(self):
         url = PcsNode.PersonalInfo.url()
-        data = dict()
-        resp = self._request(Method.Post, url, json=data)
+        resp = self._request(Method.Post, url, json={})
         info1 = resp.json()
 
         url = PcsNode.User.url()
-        data = dict()
-        resp = self._request(Method.Post, url, json=data)
+        resp = self._request(Method.Post, url, json={})
         info2 = resp.json()
 
-        return {**info1, **info2}
+        url = PcsNode.UserVip.url()
+        resp = self._request(Method.Post, url, json={})
+        info3 = resp.json()
+
+        return {**info1, **info2, "user_vip_info": info3}
 
     @timeout_cache(1 * 60 * 60)  # 1 hour timeout
     @assert_ok
@@ -846,7 +877,6 @@ class AliPCS:
         self,
         shared_file_id: str,
         share_id: str,
-        share_token: str,
         expire_duration: int = 10 * 60,
         max_chunk_size: int = DEFAULT_MAX_CHUNK_SIZE,
         callback: Callable[..., None] = None,
@@ -855,7 +885,6 @@ class AliPCS:
         url = self.shared_file_download_url(
             shared_file_id,
             share_id,
-            share_token,
             expire_duration=expire_duration,
         )
 
