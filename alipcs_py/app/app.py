@@ -1,4 +1,4 @@
-from typing import Optional, List, Tuple
+from typing import Optional, List, Tuple, Union
 import os
 
 # Enable UTF-8 Mode for Windows
@@ -17,11 +17,9 @@ import traceback
 
 from alipcs_py import __version__
 from alipcs_py.alipcs import AliPCSApi, AliPCSError
+from alipcs_py.app import account as account_module
 from alipcs_py.app.account import Account, AccountManager
-from alipcs_py.commands.env import (
-    ACCOUNT_DATA_PATH,
-    RAPIDUPLOADINFO_PATH,
-)
+from alipcs_py.commands.env import CONFIG_PATH, ACCOUNT_DATA_PATH, SHARED_STORE_PATH
 from alipcs_py.common.progress_bar import _progress
 from alipcs_py.common.path import join_path
 from alipcs_py.common.net import random_avail_port
@@ -34,6 +32,9 @@ from alipcs_py.commands.sifter import (
     IsDirSifter,
 )
 from alipcs_py.commands.display import (
+    display_invalid_shared_link_infos,
+    display_shared_files,
+    display_shared_link_infos,
     display_user_info,
     display_user_infos,
 )
@@ -55,6 +56,9 @@ from alipcs_py.commands.sync import sync as _sync
 from alipcs_py.commands import share as _share
 from alipcs_py.commands.server import start_server
 from alipcs_py.commands.log import get_logger
+from alipcs_py.storage.store import AliPCSApiWithSharedStore, SharedStore
+from alipcs_py.config import AppConfig
+from alipcs_py.app.config import init_config
 
 import click
 
@@ -134,17 +138,23 @@ def handle_error(func):
     return wrap
 
 
+def _app_config(ctx):
+    """App Configuration"""
+
+    return ctx.obj.app_config
+
+
 def _user_ids(ctx) -> Optional[List[int]]:
     """Select use_ids by their name probes"""
 
     am = ctx.obj.account_manager
-    user_name_probes = ctx.obj.users
+    account_name_probes = ctx.obj.accounts
 
     user_ids = []
     for user_id, account in am._accounts.items():
-        user_name = account.user.user_name
-        for probe in user_name_probes:
-            if probe in user_name:
+        account_name = account.account_name
+        for probe in account_name_probes:
+            if probe in account_name:
                 user_ids.append(user_id)
                 break
     return user_ids
@@ -198,21 +208,16 @@ def _recent_account(ctx) -> Optional[Account]:
         return None
 
 
-def _recent_user_id_and_name(ctx) -> Tuple[Optional[str], Optional[str]]:
-    account = _recent_account(ctx)
-    user_id, user_name = None, None
-    if account:
-        user_id = account.user.user_id
-        user_name = account.user.user_name
-    return user_id, user_name
-
-
-def _recent_api(ctx) -> Optional[AliPCSApi]:
+def _recent_api(ctx) -> Union[AliPCSApi, AliPCSApiWithSharedStore, None]:
     """Return recent user's `AliPCSApi`"""
 
+    app_config = _app_config(ctx)
     account = _recent_account(ctx)
     if account:
-        return account.pcsapi()
+        api = account.pcsapi()
+        if app_config.share.store:
+            api._sharedstore = SharedStore()  # type: ignore
+        return api
     else:
         return None
 
@@ -262,6 +267,13 @@ ALIAS = OrderedDict(
         "sl": "shared",
         "cs": "cancelshared",
         "s": "save",
+        "ssl": "storesharedlinks",
+        "lsl": "listsharedlinks",
+        "lsf": "listsharedfiles",
+        "fsl": "findsharedlinks",
+        "fsf": "findsharedfiles",
+        "fs": "findshared",
+        "dss": "deletestoredshared",
         # Server
         "sv": "server",
     }
@@ -300,17 +312,28 @@ _ALIAS_DOC = "Command 别名:\n\n\b\n" + "\n".join(
 
 @click.group(cls=AliasedGroup, help=_APP_DOC, epilog=_ALIAS_DOC)
 @click.option(
+    "--config", "-c", type=str, default=CONFIG_PATH, help="Configuration file"
+)
+@click.option(
     "--account-data-path",
     "--adp",
     type=str,
     default=ACCOUNT_DATA_PATH,
     help="Account data file",
 )
-@click.option("--users", "-u", type=str, default=None, help="用户名片段，用“,”分割")
+@click.option("--accounts", "-u", type=str, default=None, help="帐号名片段，用“,”分割")
 @click.pass_context
-def app(ctx, account_data_path, users):
+def app(ctx, config, account_data_path, accounts):
     ctx.obj.account_manager = AccountManager.load_data(account_data_path)
-    ctx.obj.users = [] if users is None else users.split(",")
+    ctx.obj.accounts = [] if accounts is None else accounts.split(",")
+
+    # Load app config
+    app_config = AppConfig.load(config)
+    ctx.obj.app_config = app_config
+    init_config(app_config)
+
+    if app_config.share.store:
+        account_module.AliPCSApi = AliPCSApiWithSharedStore
 
 
 # Account
@@ -355,8 +378,10 @@ def updateuser(ctx, user_ids):
     for user_id in user_ids:
         am.update(user_id)
         account = am.who(user_id)
-        display_user_info(account.user)
-        am.save(user_id=user_id)
+        if account:
+            display_user_info(account.user)
+
+    am.save()
 
 
 @app.command()
@@ -367,7 +392,10 @@ def su(ctx, user_index):
     """切换当前用户"""
 
     am = ctx.obj.account_manager
-    ls = sorted([(a.user, a.pwd) for a in am.accounts])
+    ls = sorted(
+        [(a.user, a.pwd, a.account_name) for a in am.accounts],
+        key=lambda x: x[0].user_id,
+    )
     display_user_infos(*ls, recent_user_id=am._who)
 
     if user_index:
@@ -394,11 +422,21 @@ def userlist(ctx):
     """显示所有用户"""
 
     am = ctx.obj.account_manager
-    ls = sorted([(a.user, a.pwd) for a in am.accounts])
+    ls = sorted(
+        [(a.user, a.pwd, a.account_name) for a in am.accounts],
+        key=lambda x: x[0].user_id,
+    )
     display_user_infos(*ls, recent_user_id=am._who)
 
 
 @app.command()
+@click.option(
+    "--account_name",
+    prompt="Account Name",
+    hide_input=False,
+    default="",
+    help="账号名 [默认为 user id]",
+)
 @click.option(
     "--refresh-token",
     prompt="refresh token",
@@ -407,14 +445,14 @@ def userlist(ctx):
 )
 @click.pass_context
 @handle_error
-def useradd(ctx, refresh_token):
+def useradd(ctx, account_name, refresh_token):
     """添加一个用户并设置为当前用户"""
 
     assert refresh_token, "No `refresh_token`"
 
-    account = Account.from_refresh_token(refresh_token)
+    account = Account.from_refresh_token(refresh_token, account_name=account_name)
     am = ctx.obj.account_manager
-    am.useradd(account.user)
+    am.add_account(account)
     am.su(account.user.user_id)
     am.save()
 
@@ -426,7 +464,10 @@ def userdel(ctx):
     """删除一个用户"""
 
     am = ctx.obj.account_manager
-    ls = sorted([(a.user, a.pwd) for a in am.accounts])
+    ls = sorted(
+        [(a.user, a.pwd, a.account_name) for a in am.accounts],
+        key=lambda x: x[0].user_id,
+    )
     display_user_infos(*ls, recent_user_id=am._who)
 
     indexes = list(str(idx) for idx in range(1, len(ls) + 1))
@@ -1048,7 +1089,7 @@ def play(
         encrypt_password = encrypt_password or _encrypt_password(ctx)
 
         host = "localhost"
-        port = random_avail_port(49152, 65535)
+        port = random_avail_port()
 
         local_server = f"http://{host}:{port}"
 
@@ -1337,8 +1378,213 @@ def save(ctx, share_url_or_id, file_id, remotedir, password):
     )
 
 
-# }}}
+@app.command()
+@click.argument("share_urls_or_ids", nargs=-1, type=str)
+@click.option("--password", "-p", type=str, help="分享链接密码，如果没有不用设置")
+@click.pass_context
+@handle_error
+def storesharedlinks(ctx, share_urls_or_ids, password):
+    """保存分享连接在本地
 
+    注意: 使用这个命令必须将配置文件 ~/.alipcs-py/config.toml 中的 [share] store 设为 true
+    """
+
+    app_config = _app_config(ctx)
+    if not app_config.share.store:
+        print(
+            "App configuration `[share] store is false`. So the command does not work"
+        )
+        return
+
+    api = _recent_api(ctx)
+    if not api:
+        return
+
+    for share_url_or_id in share_urls_or_ids:
+        share_url = ""
+        share_id = ""
+        if "/s/" in share_url_or_id:
+            share_url = share_url_or_id
+        else:
+            share_id = share_url_or_id
+
+        _share.get_share_token(
+            api, share_id=share_id, share_url=share_url, password=password
+        )
+
+
+@app.command()
+@click.pass_context
+@handle_error
+def listsharedlinks(ctx):
+    """显示保存的分享连接
+
+    注意: 使用这个命令必须将配置文件 ~/.alipcs-py/config.toml 中的 [share] store 设为 true
+    """
+
+    shared_store = SharedStore()
+    shared_links = shared_store.list_shared_links()
+    display_shared_link_infos(*shared_links)
+
+
+@app.command()
+@click.option("--share-id", "--si", multiple=True, type=str, help="要搜索的share_id")
+@click.pass_context
+@handle_error
+def listsharedfiles(ctx, share_id):
+    """显示保存的分享文件
+
+    注意: 使用这个命令必须将配置文件 ~/.alipcs-py/config.toml 中的 [share] store 设为 true
+    """
+
+    shared_store = SharedStore()
+
+    offset = 0
+    while True:
+        shared_files = shared_store.list_shared_files(share_ids=share_id, offset=offset)
+        display_shared_files(*shared_files)
+        yes = Prompt.ask("Next page", choices=["y", "n"], default="y")
+        if yes == "y":
+            offset += len(shared_files)
+        else:
+            break
+
+
+def _find_shared_links(keywords: List[str]):
+    shared_store = SharedStore()
+    shared_links = shared_store.search_shared_links(*keywords)
+    display_shared_link_infos(*shared_links)
+
+
+@app.command()
+@click.argument("keywords", nargs=-1, type=str)
+@click.pass_context
+@handle_error
+def findsharedlinks(ctx, keywords):
+    """查找保存的分享连接
+
+    注意: 使用这个命令必须将配置文件 ~/.alipcs-py/config.toml 中的 [share] store 设为 true
+    """
+
+    _find_shared_links(keywords)
+
+
+def _find_shared_files(
+    keywords: List[str], share_ids: List[str] = [], verbose: bool = False
+):
+    shared_store = SharedStore()
+    shared_files = shared_store.search_shared_files(*keywords, share_ids=share_ids)
+    display_shared_files(*shared_files, verbose=verbose)
+
+
+@app.command()
+@click.argument("keywords", nargs=-1, type=str)
+@click.option("--share-id", "--si", multiple=True, type=str, help="要搜索的share_id")
+@click.option("--verbose", "-v", is_flag=True, help="显示细节")
+@click.pass_context
+@handle_error
+def findsharedfiles(ctx, keywords, share_id, verbose):
+    """查找保存的分享文件
+
+    注意: 使用这个命令必须将配置文件 ~/.alipcs-py/config.toml 中的 [share] store 设为 true
+    """
+
+    _find_shared_files(keywords, share_ids=share_id, verbose=verbose)
+
+
+@app.command()
+@click.argument("keywords", nargs=-1, type=str)
+@click.option("--verbose", "-v", is_flag=True, help="显示细节")
+@click.pass_context
+@handle_error
+def findshared(ctx, keywords, verbose):
+    """查找保存的分享连接和文件
+
+    注意: 使用这个命令必须将配置文件 ~/.alipcs-py/config.toml 中的 [share] store 设为 true
+    """
+
+    _find_shared_links(keywords)
+    print()
+    _find_shared_files(keywords, verbose=verbose)
+
+
+@app.command()
+@click.argument("share_ids", nargs=-1, type=str)
+@click.option(
+    "--keyword", "-k", multiple=True, type=str, help="要删除文件名的关键字，如果为空则删除share_id下的所有文件"
+)
+@click.pass_context
+@handle_error
+def deletestoredshared(ctx, share_ids, keyword):
+    """删除保存的分享连接或文件
+
+    注意: 使用这个命令必须将配置文件 ~/.alipcs-py/config.toml 中的 [share] store 设为 true
+    """
+
+    if not share_ids:
+        return
+
+    shared_store = SharedStore()
+
+    if not keyword:
+        shared_links = []
+        for share_id in share_ids:
+            sli = shared_store.get_shared_link_info(share_id)
+            if sli:
+                shared_links.append(sli)
+        display_shared_link_infos(*shared_links)
+        yes = Prompt.ask(
+            "Are you sure to delete these stored shared links and their files?",
+            choices=["n", "Yes"],
+            default="n",
+        )
+        if yes == "Yes":
+            shared_store.delete_shared_links(*share_ids)
+    else:
+        shared_files = shared_store.search_shared_files(*keyword, share_ids=share_ids)
+        display_shared_files(*shared_files)
+        yes = Prompt.ask(
+            "Are you sure to delete these stored shared files?",
+            choices=["n", "Yes"],
+            default="n",
+        )
+        if yes == "Yes":
+            file_ids = [sf.file_id for sf, _ in shared_files]
+            shared_store.delete_shared_files(*file_ids)
+
+
+@app.command()
+@click.pass_context
+@handle_error
+def cleanstore(ctx):
+    """清理存储的无效分享连接
+
+    注意: 使用这个命令必须将配置文件 ~/.alipcs-py/config.toml 中的 [share] store 设为 true
+    """
+
+    app_config = _app_config(ctx)
+    if not app_config.share.store:
+        print(
+            "App configuration `[share] store is false`. So the command does not work"
+        )
+        return
+
+    api: AliPCSApiWithSharedStore = _recent_api(ctx)
+    if not api:
+        return
+
+    store = api.sharedstore
+    if not store:
+        return
+
+    shared_links = store.list_shared_links()
+    for shared_link in shared_links:
+        if not api.is_shared_valid(shared_link.share_id):
+            store.delete_shared_links(shared_link.share_id)
+            display_invalid_shared_link_infos(shared_link)
+
+
+# }}}
 
 # Server
 # {{{
