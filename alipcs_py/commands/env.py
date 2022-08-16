@@ -4,17 +4,19 @@ from pathlib import Path
 DATA_DIR = Path("~").expanduser() / ".alipcs-py"
 
 # Account data path
-ACCOUNT_DATA_PATH = DATA_DIR
+ACCOUNT_DATA_PATH = DATA_DIR / "accounts.pk"
 
-# The prefix and suffix of account data file
-ACCOUNT_DATA_FILE_PREFIX = "account-"
-ACCOUNT_DATA_FILE_SUFFIX = ".pk"
-
-# Localstorage data path
+# Rapiduploadinfo database path
 RAPIDUPLOADINFO_PATH = DATA_DIR / "rapiduploadinfo.sqlite3"
+
+# Shared store database path
+SHARED_STORE_PATH = DATA_DIR / "shared-store.sqlite3"
 
 # Logging path
 LOG_PATH = DATA_DIR / "running.log"
 
 # Logging level
 LOG_LEVEL = "CRITICAL"
+
+# Configuration path
+CONFIG_PATH = DATA_DIR / "config.toml"
