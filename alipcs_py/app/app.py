@@ -274,6 +274,7 @@ ALIAS = OrderedDict(
         "fsf": "findsharedfiles",
         "fs": "findshared",
         "dss": "deletestoredshared",
+        "cst": "cleanstore",
         # Server
         "sv": "server",
     }
@@ -1384,7 +1385,7 @@ def save(ctx, share_url_or_id, file_id, remotedir, password):
 @click.pass_context
 @handle_error
 def storesharedlinks(ctx, share_urls_or_ids, password):
-    """保存分享连接在本地
+    """保存分享连接至本地
 
     注意: 使用这个命令必须将配置文件 ~/.alipcs-py/config.toml 中的 [share] store 设为 true
     """
@@ -1417,7 +1418,7 @@ def storesharedlinks(ctx, share_urls_or_ids, password):
 @click.pass_context
 @handle_error
 def listsharedlinks(ctx):
-    """显示保存的分享连接
+    """显示本地保存的分享连接
 
     注意: 使用这个命令必须将配置文件 ~/.alipcs-py/config.toml 中的 [share] store 设为 true
     """
@@ -1428,11 +1429,11 @@ def listsharedlinks(ctx):
 
 
 @app.command()
-@click.option("--share-id", "--si", multiple=True, type=str, help="要搜索的share_id")
+@click.option("--share-id", "--si", multiple=True, type=str, help="指定显示 share id 下的文件")
 @click.pass_context
 @handle_error
 def listsharedfiles(ctx, share_id):
-    """显示保存的分享文件
+    """显示本地保存的分享文件
 
     注意: 使用这个命令必须将配置文件 ~/.alipcs-py/config.toml 中的 [share] store 设为 true
     """
@@ -1461,7 +1462,7 @@ def _find_shared_links(keywords: List[str]):
 @click.pass_context
 @handle_error
 def findsharedlinks(ctx, keywords):
-    """查找保存的分享连接
+    """查找本地保存的分享连接
 
     注意: 使用这个命令必须将配置文件 ~/.alipcs-py/config.toml 中的 [share] store 设为 true
     """
@@ -1479,12 +1480,12 @@ def _find_shared_files(
 
 @app.command()
 @click.argument("keywords", nargs=-1, type=str)
-@click.option("--share-id", "--si", multiple=True, type=str, help="要搜索的share_id")
+@click.option("--share-id", "--si", multiple=True, type=str, help="要搜索的 share id")
 @click.option("--verbose", "-v", is_flag=True, help="显示细节")
 @click.pass_context
 @handle_error
 def findsharedfiles(ctx, keywords, share_id, verbose):
-    """查找保存的分享文件
+    """查找本地保存的分享文件
 
     注意: 使用这个命令必须将配置文件 ~/.alipcs-py/config.toml 中的 [share] store 设为 true
     """
@@ -1498,7 +1499,7 @@ def findsharedfiles(ctx, keywords, share_id, verbose):
 @click.pass_context
 @handle_error
 def findshared(ctx, keywords, verbose):
-    """查找保存的分享连接和文件
+    """查找本地保存的分享连接和文件
 
     注意: 使用这个命令必须将配置文件 ~/.alipcs-py/config.toml 中的 [share] store 设为 true
     """
@@ -1516,7 +1517,7 @@ def findshared(ctx, keywords, verbose):
 @click.pass_context
 @handle_error
 def deletestoredshared(ctx, share_ids, keyword):
-    """删除保存的分享连接或文件
+    """删除本地保存的分享连接或文件
 
     注意: 使用这个命令必须将配置文件 ~/.alipcs-py/config.toml 中的 [share] store 设为 true
     """
@@ -1557,7 +1558,7 @@ def deletestoredshared(ctx, share_ids, keyword):
 @click.pass_context
 @handle_error
 def cleanstore(ctx):
-    """清理存储的无效分享连接
+    """清理本地保存的无效分享连接
 
     注意: 使用这个命令必须将配置文件 ~/.alipcs-py/config.toml 中的 [share] store 设为 true
     """
