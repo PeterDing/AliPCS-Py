@@ -1,5 +1,33 @@
 # Changelog
 
+## v0.3.0 - 2022-09-24
+
+### Added
+
+- 支持保存分享连接至本地
+
+  可以将他人分享了连接保存至本地，而不需要保存在网盘。这只作为一个记录。在需要是提供查看搜索功能。
+
+  使用这个功能，需要使用者在本地配置文件(`~/.alipcs-py/config.toml`)中配置:
+
+  ```toml
+  [share]
+  store = true
+  ```
+
+  提供以下命令:
+
+  | 命令               | 描述                         |
+  | ------------------ | ---------------------------- |
+  | storesharedlinks   | 保存分享连接至本地           |
+  | listsharedlinks    | 显示本地保存的分享连接       |
+  | listsharedfiles    | 显示本地保存的分享文件       |
+  | findsharedlinks    | 查找本地保存的分享连接       |
+  | findsharedfiles    | 查找本地保存的分享文件       |
+  | findshared         | 查找本地保存的分享连接和文件 |
+  | deletestoredshared | 删除本地保存的分享连接或文件 |
+  | cleanstore         | 清理本地保存的无效分享连接   |
+
 ## v0.2.5 - 2022-01-15
 
 ### Updated
