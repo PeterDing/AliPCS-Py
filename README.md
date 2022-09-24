@@ -65,6 +65,17 @@ AliPCS-Py 是阿里云盘的非官方 api 和一个命令行运用程序。
 - [播放他人分享的文件](#播放他人分享的文件)
 - [保存其他用户分享的链接](#保存其他用户分享的链接)
 
+#### 保存分享连接至本地
+
+- [保存分享连接至本地](#保存分享连接至本地)
+- [显示本地保存的分享连接](#显示本地保存的分享连接)
+- [显示本地保存的分享文件](#显示本地保存的分享文件)
+- [查找本地保存的分享连接](#查找本地保存的分享连接)
+- [查找本地保存的分享文件](#查找本地保存的分享文件)
+- [查找本地保存的分享连接和文件](#查找本地保存的分享连接和文件)
+- [删除本地保存的分享连接或文件](#删除本地保存的分享连接或文件)
+- [清理本地保存的无效分享连接](#清理本地保存的无效分享连接)
+
 #### HTTP 服务
 
 - [开启 HTTP 服务](#开启-HTTP-服务)
@@ -887,6 +898,106 @@ AliPCS-Py save [OPTIONS] SHARE_URL_OR_ID REMOTEDIR
 | ------------------- | ------------------------------ |
 | -i, --file-id TEXT  | 文件 ID                        |
 | -p, --password TEXT | 分享链接密码，如果没有不用设置 |
+
+## 保存分享连接至本地
+
+可以将他人分享了连接保存至本地，而不需要保存在网盘。这只作为一个记录。在需要是提供查看搜索功能。
+
+使用这个功能，需要使用者在本地配置文件(`~/.alipcs-py/config.toml`)中配置:
+
+```toml
+[share]
+store = true
+```
+
+这个功能开启后，所有与他人分享连接的操作，都会将连接和其中访问过的文件信息保存在本地文件 `~/.alipcs-py/shared-store.sqlite3` 中。
+
+使用者可以用下面的命令来查看或搜索保存的分享连接。
+
+## 保存分享连接至本地
+
+```
+AliPCS-Py storesharedlinks [OPTIONS] [SHARE_URLS_OR_IDS]...
+```
+
+**注意**: 使用这个命令必须将配置文件 ~/.alipcs-py/config.toml 中的 [share] store 设为 true
+
+| Option              | Description                    |
+| ------------------- | ------------------------------ |
+| -p, --password TEXT | 分享链接密码，如果没有不用设置 |
+
+## 显示本地保存的分享连接
+
+```
+AliPCS-Py listsharedlinks
+```
+
+**注意**: 使用这个命令必须将配置文件 ~/.alipcs-py/config.toml 中的 [share] store 设为 true
+
+## 显示本地保存的分享文件
+
+```
+AliPCS-Py listsharedfiles [OPTIONS]
+```
+
+**注意**: 使用这个命令必须将配置文件 ~/.alipcs-py/config.toml 中的 [share] store 设为 true
+
+| Option                | Description                |
+| --------------------- | -------------------------- |
+| --share-id, --si TEXT | 指定显示 share id 下的文件 |
+
+## 查找本地保存的分享连接
+
+```
+AliPCS-Py findsharedlinks [KEYWORDS]...
+```
+
+**注意**: 使用这个命令必须将配置文件 ~/.alipcs-py/config.toml 中的 [share] store 设为 true
+
+## 查找本地保存的分享文件
+
+```
+AliPCS-Py findsharedfiles [KEYWORDS]...
+```
+
+**注意**: 使用这个命令必须将配置文件 ~/.alipcs-py/config.toml 中的 [share] store 设为 true
+
+| Option                | Description       |
+| --------------------- | ----------------- |
+| --share-id, --si TEXT | 要搜索的 share id |
+| -v, --verbose         | 显示细节          |
+
+## 查找本地保存的分享连接和文件
+
+```
+AliPCS-Py findshared [OPTIONS] [KEYWORDS]...
+```
+
+**注意**: 使用这个命令必须将配置文件 ~/.alipcs-py/config.toml 中的 [share] store 设为 true
+
+| Option        | Description |
+| ------------- | ----------- |
+| -v, --verbose | 显示细节    |
+
+## 删除本地保存的分享连接或文件
+
+```
+AliPCS-Py deletestoredshared [OPTIONS] [SHARE_IDS]...
+```
+
+**注意**: 使用这个命令必须将配置文件 ~/.alipcs-py/config.toml 中的 [share] store 设为 true
+
+| Option             | Description                                                |
+| ------------------ | ---------------------------------------------------------- |
+| -k, --keyword TEXT | 要删除文件名的关键字，如果为空则删除 share_id 下的所有文件 |
+
+## 清理本地保存的无效分享连接
+
+```
+AliPCS-Py cleanstore
+```
+
+**注意**: 使用这个命令必须将配置文件 ~/.alipcs-py/config.toml 中的 [share] store 设为 true
 
 ## 开启 HTTP 服务
 
