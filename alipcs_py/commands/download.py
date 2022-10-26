@@ -297,6 +297,7 @@ def download_file(
     if share_id:
         download_url = api.shared_file_download_url(pcs_file.file_id, share_id)
     else:
+        pcs_file.update_download_url(api)
         download_url = pcs_file.download_url
 
     assert download_url

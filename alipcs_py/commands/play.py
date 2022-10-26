@@ -126,24 +126,25 @@ def play_file(
     print(f"[italic blue]Play[/italic blue]: {pcs_file.path or pcs_file.name}")
 
     # For typing
-    url: Optional[str] = None
+    download_url: Optional[str] = None
 
     use_local_server = bool(local_server)
 
     if share_id:
         use_local_server = False
-        url = api.shared_file_download_url(pcs_file.file_id, share_id)
+        download_url = api.shared_file_download_url(pcs_file.file_id, share_id)
     elif use_local_server:
-        url = f"{local_server}{quote(pcs_file.path)}"
-        print("url:", url)
+        download_url = f"{local_server}{quote(pcs_file.path)}"
+        print("url:", download_url)
     else:
-        if not pcs_file or not pcs_file.download_url:
+        if not pcs_file or pcs_file.is_dir:
             return
-        url = pcs_file.download_url
+        pcs_file.update_download_url(api)
+        download_url = pcs_file.download_url
 
-    if url:
+    if download_url:
         player.play(
-            url,
+            download_url,
             quiet=quiet,
             player_params=player_params,
             out_cmd=out_cmd,
