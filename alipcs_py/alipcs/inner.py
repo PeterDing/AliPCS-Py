@@ -1,9 +1,13 @@
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, TYPE_CHECKING
 from dataclasses import dataclass
 from collections import namedtuple
 import time
+import re
 
 from alipcs_py.common.date import iso_8601_to_timestamp
+
+if TYPE_CHECKING:
+    from alipcs_py.alipcs.api import AliPCSApi
 
 
 @dataclass
@@ -159,17 +163,25 @@ class PcsFile:
     def is_root(self) -> bool:
         return self.file_id == "root"
 
-    # def __hash__(self) -> int:
-    #     """For dict method"""
-    #     return hash(self.file_id)
-    #
-    # def __eq__(self, proxy: object) -> bool:
-    #     """For dict method"""
-    #
-    #     if not isinstance(proxy, PcsFile):
-    #         return NotImplemented
-    #
-    #     return self.file_id == self.file_id
+    def download_url_expires(self) -> bool:
+        """Check whether the `self.download_url` expires"""
+
+        if self.download_url:
+            mod = re.search(r"oss-expires=(\d+)", self.download_url)
+            if mod:
+                expire_time = float(mod.group(1))
+                if time.time() < expire_time - 5:
+                    return False
+        return True
+
+    def update_download_url(self, api: "AliPCSApi"):
+        """Update the download url if it expires"""
+
+        if self.download_url_expires():
+            pcs_url = api.download_link(self.file_id)
+            if not pcs_url:
+                return
+            self.download_url = pcs_url.url
 
 
 @dataclass
@@ -566,5 +578,5 @@ class PcsDownloadUrl:
             size=info.get("size"),
             method=info.get("method"),
             expiration=expiration,
-            ratelimit=PcsRateLimit.from_(info.get("ratelimit")),
+            ratelimit=PcsRateLimit.from_(info.get("ratelimit") or {}),
         )
