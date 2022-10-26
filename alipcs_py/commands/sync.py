@@ -40,7 +40,7 @@ def sync(
 
     all_pcs_files = {
         pcs_file.path[remotedir_len + 1 :]: pcs_file
-        for pcs_file in api.list_path_iter(remotedir)
+        for pcs_file in api.list_path_iter(remotedir, recursive=True, include_dir=False)
     }
 
     fts: List[FromTo] = []
@@ -58,13 +58,16 @@ def sync(
     for lp, pf in check_list:
         sha1 = calc_sha1(Path(lp).open("rb"))
 
-        if pf.rapid_upload_info and sha1 != pf.rapid_upload_info.content_hash:
+        if (
+            pf.rapid_upload_info
+            and sha1.lower() != pf.rapid_upload_info.content_hash.lower()
+        ):
             fts.append(FromTo(lp, pf.path))
 
-    to_deletes = []
+    need_deleted_file_ids = []
     for rp in all_pcs_files.keys():
         if rp not in all_localpaths:
-            to_deletes.append(all_pcs_files[rp].path)
+            need_deleted_file_ids.append(all_pcs_files[rp].file_id)
 
     logger.debug(
         "`sync`: all localpaths: %s, "
@@ -72,25 +75,8 @@ def sync(
         "remotepaths needed to delete: %s",
         len(all_localpaths),
         len(fts),
-        len(to_deletes),
+        len(need_deleted_file_ids),
     )
-
-    # The md5 of remote file is incorrect at most time, so we don't compare md5
-    #
-    # # Compare localpath content md5 with remotepath content md5
-    # semaphore = Semaphore(max_workers)
-    # with ThreadPoolExecutor(max_workers=CPU_NUM) as executor:
-    #     tasks = {}
-    #     for lp, pf in check_list:
-    #         semaphore.acquire()
-    #         fut = executor.submit(sure_release, semaphore, check_file_md5, lp, pf)
-    #         tasks[fut] = (lp, pf)
-    #
-    #     for fut in as_completed(tasks):
-    #         is_equal = fut.result()
-    #         lp, pf = tasks[fut]
-    #         if not is_equal:
-    #             fts.append(FromTo(lp, pf.path))
 
     _upload(
         api,
@@ -106,6 +92,6 @@ def sync(
         user_name=user_name,
     )
 
-    if to_deletes:
-        api.remove(*to_deletes)
-        print(f"Delete: [i]{len(to_deletes)}[/i] remote paths")
+    if need_deleted_file_ids:
+        api.remove(*need_deleted_file_ids)
+        print(f"Delete: [i]{len(need_deleted_file_ids)}[/i] remote paths")
