@@ -854,10 +854,11 @@ def copy(ctx, remotepaths, show):
 
 @app.command()
 @click.argument("remotepaths", nargs=-1, type=str)
+@click.option("--file-id", "-i", multiple=True, type=str, help="文件 ID")
 @click.pass_context
 @handle_error
 @multi_user_do
-def remove(ctx, remotepaths):
+def remove(ctx, remotepaths, file_id):
     """删除文件"""
 
     api = _recent_api(ctx)
@@ -868,6 +869,9 @@ def remove(ctx, remotepaths):
     remotepaths = (join_path(pwd, r) for r in remotepaths)
 
     file_operators.remove(api, *remotepaths)
+
+    if file_id:
+        api.remove(*file_id)
 
 
 @app.command()
