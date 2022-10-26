@@ -25,7 +25,7 @@ from alipcs_py.alipcs.inner import (
     PcsUser,
     PcsDownloadUrl,
 )
-from alipcs_py.common.path import split_posix_path, join_path
+from alipcs_py.common.path import split_posix_path, join_path, posix_path_dirname
 
 from requests_toolbelt import MultipartEncoderMonitor
 
@@ -164,7 +164,12 @@ class AliPCSApi:
         url_expire_sec: int = 7200,
         next_marker: str = "",
     ) -> Tuple[List[PcsFile], str]:
-        """List directory contents"""
+        """List the directory's contents
+
+        List files and directories in the given directory (which has the `file_id`).
+        The return items size is limited by the `limit` parameter. If you want to list
+        more, using the returned `next_marker` parameter for next `list` call.
+        """
 
         info = self._alipcs.list(
             file_id=file_id,
@@ -192,7 +197,14 @@ class AliPCSApi:
         all: bool = False,
         limit: int = 100,
         url_expire_sec: int = 7200,
+        recursive: bool = False,
+        include_dir: bool = True,
     ) -> Iterator[PcsFile]:
+        """Iterate the directory by its `file_id`
+
+        Iterate all files and directories at the directory (which has the `file_id`).
+        """
+
         next_marker = ""
         pcs_file = self.meta(file_id, share_id=share_id)[0]
         dirname = pcs_file.name
@@ -211,12 +223,35 @@ class AliPCSApi:
             )
             for pf in pcs_files:
                 pf.path = join_path(dirname, pf.name)
-                yield pf
+
+                if pf.is_dir:
+                    if include_dir:
+                        yield pf
+                    if recursive:
+                        for sub_pf in self.list_iter(
+                            pf.file_id,
+                            share_id=share_id,
+                            desc=desc,
+                            name=name,
+                            time=time,
+                            size=size,
+                            all=all,
+                            limit=limit,
+                            url_expire_sec=url_expire_sec,
+                            recursive=recursive,
+                            include_dir=include_dir,
+                        ):
+                            sub_pf.path = join_path(dirname, sub_pf.path)
+                            yield sub_pf
+                else:
+                    yield pf
 
             if not next_marker:
                 return
 
     def path(self, remotepath: str, share_id: str = None) -> Optional[PcsFile]:
+        """Get the pcs file's info by the given absolute `remotepath`"""
+
         if share_id:
             return self._shared_path_tree[share_id].search(
                 remotepath=remotepath, share_id=share_id
@@ -225,7 +260,7 @@ class AliPCSApi:
             return self._path_tree.search(remotepath=remotepath)
 
     def paths(self, *remotepaths: str, share_id: str = None) -> List[Optional[PcsFile]]:
-        """NOT support to list shared paths"""
+        """Get the pcs files' info by the given absolute `remotepaths`"""
 
         return [self.path(rp, share_id=share_id) for rp in remotepaths]
 
@@ -241,12 +276,18 @@ class AliPCSApi:
         all: bool = False,
         limit: int = 100,
         url_expire_sec: int = 7200,
+        recursive: bool = False,
+        include_dir: bool = True,
     ) -> Iterator[PcsFile]:
+        """Iterate the `remotepath`"""
+
         if not file_id:
             pf = self.path(remotepath, share_id=share_id)
             if not pf:
                 return
             file_id = pf.file_id
+
+        dirname = posix_path_dirname(remotepath)
 
         for p in self.list_iter(
             file_id,
@@ -258,8 +299,10 @@ class AliPCSApi:
             all=all,
             limit=limit,
             url_expire_sec=url_expire_sec,
+            recursive=recursive,
+            include_dir=include_dir,
         ):
-            p.path = join_path(remotepath, p.name)
+            p.path = join_path(dirname, p.path)
             yield p
 
     def list_path(
@@ -587,13 +630,7 @@ class AliPCSApi:
         return user_info
 
     def download_link(self, file_id: str) -> Optional[PcsDownloadUrl]:
-        """Download link of the `remotepath`
-
-        pcs (bool, default: False): If pcs is True, return the downloading pcs link
-            which has a limited threshold of downstream even if the user is a svip.
-            If pcs is False, return the downloading link requested by the android api
-            and which has not limited threshold for a svip user.
-        """
+        """Get the download link of the `file_id`"""
 
         info = self._alipcs.download_link(file_id)
         return PcsDownloadUrl.from_(info)
