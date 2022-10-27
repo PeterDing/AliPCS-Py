@@ -545,15 +545,26 @@ AliPCS-Py move [OPTIONS] [REMOTEPATHS]... REMOTEDIR
 
 ### 选项
 
-| Option     | Description |
-| ---------- | ----------- |
-| -S, --show | 显示结果    |
+| Option        | Description  |
+| ------------- | ------------ |
+| -S, --show    | 显示结果     |
 
 ## 删除文件
 
 ```
 AliPCS-Py remove [OPTIONS] [REMOTEPATHS]...
+
+# 指定 路径
+AliPCS-Py remove /some/path
+# 指定 file-id
+AliPCS-Py remove --file-id ...
 ```
+
+### 选项
+
+| Option        | Description  |
+| ------------- | ------------ |
+| -i, --file-id | TEXT 文件 ID |
 
 ## 下载文件或目录
 
