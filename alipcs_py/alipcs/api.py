@@ -13,8 +13,9 @@ from threading import Lock
 from collections import defaultdict
 from copy import deepcopy
 from functools import partial
-from alipcs_py.alipcs.errors import AliPCSError
+import logging
 
+from alipcs_py.alipcs.errors import AliPCSError
 from alipcs_py.common.io import RangeRequestIO, DEFAULT_MAX_CHUNK_SIZE
 from alipcs_py.alipcs.pcs import AliPCS
 from alipcs_py.alipcs.inner import (
@@ -29,7 +30,10 @@ from alipcs_py.common.path import split_posix_path, join_path, posix_path_dirnam
 
 from requests_toolbelt import MultipartEncoderMonitor
 
-_LOCK = Lock()
+logger = logging.getLogger(__name__)
+
+
+_ALI_PCS_API_LOCK = Lock()
 
 
 class AliPCSApi:
@@ -471,27 +475,29 @@ class AliPCSApi:
         return PcsFile.from_(info)
 
     def makedir_path(self, remotedir: str) -> PcsFile:
-        parts = split_posix_path(remotedir)
-        parent = PcsFile.root()
-        for i, part in enumerate(parts):
-            if part == "/":  # ignore root
-                continue
+        # Use lock to ignore make a directory twice
+        with _ALI_PCS_API_LOCK:
+            parts = split_posix_path(remotedir)
+            parent = PcsFile.root()
+            for i, part in enumerate(parts):
+                if part == "/":  # ignore root
+                    continue
 
-            # Find the sub directory which has the name of `part`
-            pf = PcsFile.root()
-            for pf in self.list_iter(parent.file_id):
+                # Find the sub directory which has the name of `part`
+                pf = PcsFile.root()
+                for pf in self.list_iter(parent.file_id):
+                    if pf.name == part:
+                        break
+
+                now_dir = join_path(*parts[: i + 1])
                 if pf.name == part:
-                    break
+                    assert pf.is_dir, f"{now_dir} is a file"
+                else:
+                    pf = self.makedir(parent.file_id, part)
 
-            now_dir = join_path(*parts[: i + 1])
-            if pf.name == part:
-                assert pf.is_dir, f"{now_dir} is a file"
-            else:
-                pf = self.makedir(parent.file_id, part)
-
-            pf.path = now_dir
-            parent = pf
-        return parent
+                pf.path = now_dir
+                parent = pf
+            return parent
 
     def move(self, *file_ids: str) -> List[bool]:
         """Move `file_ids[:-1]` to `file_ids[-1]`"""
@@ -588,8 +594,19 @@ class AliPCSApi:
     def shared_info(self, share_id: str) -> PcsSharedLinkInfo:
         """Get shared link info by anyone"""
 
-        info = self._alipcs.shared_info(share_id)
-        return PcsSharedLinkInfo.from_(info)
+        while True:
+            try:
+                info = self._alipcs.shared_info(share_id)
+                return PcsSharedLinkInfo.from_(info)
+            except AliPCSError as err:
+                # XXX: What is the error?
+                if err.error_code == "ParamFlowException":
+                    logger.debug(
+                        "AliPCSApi.shared_info gets error: `ParamFlowException`"
+                    )
+                    continue
+                else:
+                    raise
 
     # list_shared_files is an alias of list
     list_shared_files = list
@@ -704,7 +721,16 @@ class _Node:
             return None
 
 
+_PATH_TREE_LOCK = Lock()
+
+
 class PathTree:
+    """Path Tree
+
+    Invite a file or directory by its path is not supported by aliyundrive.
+    This class is aim to support to invite a file or directory by its path.
+    """
+
     def __init__(self, api: AliPCSApi):
         self._api = api
         self.root = _Node("root", PcsFile.root())
@@ -759,12 +785,7 @@ class PathTree:
         root_pcs_file = root.pcs_file
 
         # Add lock
-        with _LOCK:
-            # sub_node = root.sub_nodes.get(next_key)
-            # if sub_node:
-            #     if not self._api.exists(sub_node.pcs_file.file_id):
-            #         root.sub_nodes.pop(next_key)
-
+        with _PATH_TREE_LOCK:
             if pull and next_key not in root.sub_nodes:
                 for pf in self._api.list_iter(root_pcs_file.file_id, share_id=share_id):
                     if pf.name not in root.sub_nodes:
