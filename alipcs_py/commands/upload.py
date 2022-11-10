@@ -130,6 +130,11 @@ def upload(
         slice_size (int): The size of slice for uploading slices.
         ignore_existing (bool): Ignoring these localpath which of remotepath exist.
         show_progress (bool): Show uploading progress.
+        check_name_mode(str):
+          'overwrite' (直接覆盖，以后多版本有用)
+          'auto_rename' (自动换一个随机名称)
+          'refuse' (不会创建，告诉你已经存在)
+          'ignore' (会创建重名的)
     """
 
     logger.debug(
@@ -298,24 +303,23 @@ def upload_one_by_one(
 ):
     """Upload files one by one with uploading the slices concurrently"""
 
-    with _progress:
-        for from_to in from_to_list:
-            task_id = None
-            if show_progress:
-                task_id = _progress.add_task("upload", start=False, title=from_to.from_)
-            upload_file_concurrently(
-                api,
-                from_to,
-                check_name_mode,
-                max_workers=max_workers,
-                encrypt_password=encrypt_password,
-                encrypt_type=encrypt_type,
-                slice_size=slice_size,
-                ignore_existing=ignore_existing,
-                task_id=task_id,
-                user_id=user_id,
-                user_name=user_name,
-            )
+    for from_to in from_to_list:
+        task_id = None
+        if show_progress:
+            task_id = _progress.add_task("upload", start=False, title=from_to.from_)
+        upload_file_concurrently(
+            api,
+            from_to,
+            check_name_mode,
+            max_workers=max_workers,
+            encrypt_password=encrypt_password,
+            encrypt_type=encrypt_type,
+            slice_size=slice_size,
+            ignore_existing=ignore_existing,
+            task_id=task_id,
+            user_id=user_id,
+            user_name=user_name,
+        )
 
     logger.debug("======== Uploading end ========")
 
@@ -526,43 +530,38 @@ def upload_many(
 
     excepts = {}
     semaphore = Semaphore(max_workers)
-    with _progress:
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futs = {}
-            for idx, from_to in enumerate(from_to_list):
-                semaphore.acquire()
-                task_id = None
-                if show_progress:
-                    task_id = _progress.add_task(
-                        "upload", start=False, title=from_to.from_
-                    )
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futs = {}
+        for idx, from_to in enumerate(from_to_list):
+            semaphore.acquire()
+            task_id = None
+            if show_progress:
+                task_id = _progress.add_task("upload", start=False, title=from_to.from_)
 
-                logger.debug(
-                    "`upload_many`: Upload: index: %s, task_id: %s", idx, task_id
-                )
+            logger.debug("`upload_many`: Upload: index: %s, task_id: %s", idx, task_id)
 
-                fut = executor.submit(
-                    sure_release,
-                    semaphore,
-                    upload_file,
-                    api,
-                    from_to,
-                    check_name_mode,
-                    encrypt_password=encrypt_password,
-                    encrypt_type=encrypt_type,
-                    slice_size=slice_size,
-                    ignore_existing=ignore_existing,
-                    task_id=task_id,
-                    user_id=user_id,
-                    user_name=user_name,
-                )
-                futs[fut] = from_to
+            fut = executor.submit(
+                sure_release,
+                semaphore,
+                upload_file,
+                api,
+                from_to,
+                check_name_mode,
+                encrypt_password=encrypt_password,
+                encrypt_type=encrypt_type,
+                slice_size=slice_size,
+                ignore_existing=ignore_existing,
+                task_id=task_id,
+                user_id=user_id,
+                user_name=user_name,
+            )
+            futs[fut] = from_to
 
-            for fut in as_completed(futs):
-                e = fut.exception()
-                if e is not None:
-                    from_to = futs[fut]
-                    excepts[from_to] = e
+        for fut in as_completed(futs):
+            e = fut.exception()
+            if e is not None:
+                from_to = futs[fut]
+                excepts[from_to] = e
 
     logger.debug("======== Uploading end ========")
 
