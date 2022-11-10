@@ -20,7 +20,7 @@ from alipcs_py.alipcs import AliPCSApi, AliPCSError
 from alipcs_py.app import account as account_module
 from alipcs_py.app.account import Account, AccountManager
 from alipcs_py.commands.env import CONFIG_PATH, ACCOUNT_DATA_PATH, SHARED_STORE_PATH
-from alipcs_py.common.progress_bar import _progress
+from alipcs_py.common.progress_bar import _progress, init_progress_bar
 from alipcs_py.common.path import join_path
 from alipcs_py.common.net import random_avail_port
 from alipcs_py.common.io import EncryptType
@@ -122,7 +122,6 @@ def handle_error(func):
                 console = Console()
                 console.print_exception()
 
-            _teardown()
         except Exception as err:
             _exit_progress_bar()
 
@@ -133,6 +132,8 @@ def handle_error(func):
                 console = Console()
                 console.print_exception()
 
+        finally:
+            _exit_progress_bar()
             _teardown()
 
     return wrap
@@ -973,6 +974,9 @@ def download(
     else:
         encrypt_password = encrypt_password or _encrypt_password(ctx)
 
+    if not quiet:
+        init_progress_bar()
+
     if share_id or share_url:
         assert all([r.startswith("/") for r in remotepaths])
 
@@ -1222,6 +1226,10 @@ def upload(
     remotedir = join_path(pwd, remotedir)
 
     from_to_list = from_tos(localpaths, remotedir)
+
+    if not no_show_progress:
+        init_progress_bar()
+
     _upload(
         api,
         from_to_list,
