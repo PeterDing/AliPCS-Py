@@ -24,11 +24,12 @@ def cat(
 
     cn = fs.read()
     if cn:
+        if not encoding:
+            r = chardet.detect(cn)
+            if r["confidence"] > 0.5:
+                encoding = r["encoding"]
+
         if encoding:
             print(cn.decode(encoding))
         else:
-            r = chardet.detect(cn)
-            if r["confidence"] > 0.5:
-                print(cn.decode(r["encoding"]))
-            else:
-                print(cn)
+            print(cn)
