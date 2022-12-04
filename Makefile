@@ -1,5 +1,11 @@
 typecheck:
-	mypy -p alipcs_py --ignore-missing-imports --warn-unreachable
+	mypy -p alipcs_py \
+		--ignore-missing-imports \
+		--warn-unreachable \
+		--implicit-optional \
+		--allow-redefinition \
+		--disable-error-code abstract
+
 
 format-check:
 	black --check .
