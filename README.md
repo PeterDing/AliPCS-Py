@@ -545,9 +545,9 @@ AliPCS-Py move [OPTIONS] [REMOTEPATHS]... REMOTEDIR
 
 ### 选项
 
-| Option        | Description  |
-| ------------- | ------------ |
-| -S, --show    | 显示结果     |
+| Option     | Description |
+| ---------- | ----------- |
+| -S, --show | 显示结果    |
 
 ## 删除文件
 
@@ -611,6 +611,8 @@ AliPCS-Py play [OPTIONS] [REMOTEPATHS]...
 ```
 
 使用文件 ID：
+
+**注意：目前，使用 `--share-id` 或 `--file-id` 时，无法使用 `--use-local-server`**
 
 ```
 AliPCS-Py play -i file_id1 -i file_id2 -i ...

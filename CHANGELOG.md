@@ -1,5 +1,26 @@
 # Changelog
 
+## v0.3.2 - 2022-12-04
+
+### Added
+
+- `listsharedlinks` 命令支持分页。
+
+### Changed
+
+- 在下载和上传时，让调用者去初始化进度条。
+
+### Fixed
+
+- 修复不完整上传错误。
+- 修复上传时创建多个同名目录的问题。
+- 修复同步失败的问题。
+- 修复 `ls`, `download`, `play`, `search` 中 `--include-regex` 选项。
+
+### Updated
+
+- 更新依赖。
+
 ## v0.3.1 - 2022-10-26
 
 ### Fixed
