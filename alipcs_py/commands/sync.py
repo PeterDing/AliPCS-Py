@@ -6,7 +6,7 @@ from alipcs_py.common.path import walk, join_path
 from alipcs_py.common.crypto import calc_sha1
 from alipcs_py.common.constant import CPU_NUM
 from alipcs_py.common.io import EncryptType
-from alipcs_py.commands.upload import upload as _upload, DEFAULT_SLICE_SIZE
+from alipcs_py.commands.upload import UploadType, upload as _upload, DEFAULT_SLICE_SIZE
 from alipcs_py.commands.log import get_logger
 
 from rich import print
@@ -81,11 +81,12 @@ def sync(
     _upload(
         api,
         fts,
+        upload_type=UploadType.Many,
+        check_name_mode="overwrite",
         encrypt_password=encrypt_password,
         encrypt_type=encrypt_type,
         max_workers=max_workers,
         slice_size=slice_size,
-        ignore_existing=False,
         show_progress=show_progress,
         rapiduploadinfo_file=rapiduploadinfo_file,
         user_id=user_id,

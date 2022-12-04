@@ -24,7 +24,7 @@ def is_dir(localpath: PathType) -> bool:
 
 
 def walk(localpath: PathType) -> Iterator[str]:
-    for root, _, files in os.walk(localpath):
+    for root, _, files in os.walk(Path(localpath)):
         r = Path(root)
         for fl in files:
             yield (r / fl).as_posix()

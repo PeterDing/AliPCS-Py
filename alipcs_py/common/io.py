@@ -1,4 +1,15 @@
-from typing import Optional, List, Tuple, Dict, Union, Any, Callable, Generator, IO
+from typing import (
+    Optional,
+    List,
+    Tuple,
+    Dict,
+    Union,
+    Any,
+    Callable,
+    Generator,
+    IO,
+    cast,
+)
 from io import BytesIO, UnsupportedOperation
 from enum import Enum
 from pathlib import Path
@@ -29,15 +40,15 @@ from alipcs_py.common.crypto import (
     calc_md5,
     calc_crc32_and_md5,
 )
-from alipcs_py.common.log import LogLevels, get_logger
+from alipcs_py.common.log import LogLevels, TLogLevel, get_logger
 
-import requests
+import requests  # type: ignore
 from requests import Response
 
 _LOG_LEVEL = os.getenv("LOG_LEVEL", "CRITICAL").upper()
 if _LOG_LEVEL not in LogLevels:
     _LOG_LEVEL = "CRITICAL"
-logger = get_logger(__name__, level=_LOG_LEVEL)
+logger = get_logger(__name__, level=cast(TLogLevel, _LOG_LEVEL))
 
 READ_SIZE = 65535
 DEFAULT_MAX_CHUNK_SIZE = 50 * constant.OneM
@@ -238,10 +249,16 @@ class EncryptIO(IO):
         # Cryptography
         #
         # Instantiated at each subclass, here is for mypy
-        self._crypto: Optional[Cryptography] = None
+        self._crypto: Cryptography
 
-        self._total_head = None
+        self._total_head: bytes
         self._total_head_len = len(self.total_head)
+
+    def magic_code(self) -> bytes:
+        raise NotImplementedError()
+
+    def block_size(self) -> int:
+        raise NotImplementedError()
 
     def reset(self):
         """Reset io and crypto"""
@@ -277,14 +294,14 @@ class EncryptIO(IO):
         `salt 8bytes`
         """
 
-        if self._total_head:
+        if hasattr(self, "_total_head"):
             return self._total_head
 
         assert len(self._salt) == 8
 
         ori_head = padding_key(
             BAIDUPCS_PY_CRYPTO_MAGIC_CODE
-            + self.MAGIC_CODE
+            + self.magic_code()
             + self._salt
             + random_sys_bytes(8)
             + u64_to_u8x8(self._total_origin_len),
@@ -382,6 +399,12 @@ class SimpleEncryptIO(EncryptIO):
         super().__init__(*args, **kwargs)
         self._crypto = SimpleCryptography(self._encrypt_key + self._nonce_or_iv)
 
+    def magic_code(self) -> bytes:
+        return self.MAGIC_CODE
+
+    def block_size(self) -> int:
+        return self.BLOCK_SIZE
+
 
 class ChaCha20EncryptIO(EncryptIO):
     MAGIC_CODE = b"\x01"
@@ -391,6 +414,12 @@ class ChaCha20EncryptIO(EncryptIO):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._crypto = ChaCha20Cryptography(self._encrypt_key, self._nonce_or_iv)
+
+    def magic_code(self) -> bytes:
+        return self.MAGIC_CODE
+
+    def block_size(self) -> int:
+        return self.BLOCK_SIZE
 
     def reset(self):
         super().reset()
@@ -420,6 +449,12 @@ class AES256CBCEncryptIO(EncryptIO):
         self._encrypted_cache = bytearray()
 
         self._need_data_padded = self._total_origin_len != self._encrypted_io_len
+
+    def magic_code(self) -> bytes:
+        return self.MAGIC_CODE
+
+    def block_size(self) -> int:
+        return self.BLOCK_SIZE
 
     def reset(self):
         super().reset()
@@ -676,7 +711,7 @@ class AES256CBCDecryptIO(DecryptIO):
             len(self._encrypted_cache), self.BLOCK_SIZE, ceil=False
         )
         if avail_enc_len > 0:
-            enc_cn = self._encrypted_cache[:avail_enc_len]
+            enc_cn = bytes(self._encrypted_cache[:avail_enc_len])
             self._encrypted_cache = self._encrypted_cache[avail_enc_len:]
         else:
             enc_cn = b""
@@ -730,15 +765,15 @@ def _decryptio_version1(
     encrypt_password = padding_key(encrypt_password, 32)
 
     if len(total_head) < ENCRYPT_HEAD_LEN:
-        return
+        return None
 
     # Version 1
-    b_mc, magic_code, nonce_or_iv, total_origin_len = parse_head(total_head)
+    b_mc, magic_code, nonce_or_iv, total_origin_len_ = parse_head(total_head)
     b_mc = aes256cbc_decrypt(b_mc, encrypt_password, random_bytes(16, encrypt_password))
-    total_origin_len = u8x8_to_u64(total_origin_len)
+    total_origin_len = u8x8_to_u64(total_origin_len_)
 
     if b_mc != BAIDUPCS_PY_CRYPTO_MAGIC_CODE:
-        return
+        return None
 
     if magic_code == SimpleEncryptIO.MAGIC_CODE:
         return SimpleDecryptIO(io, encrypt_password, b"", total_origin_len)
@@ -747,15 +782,15 @@ def _decryptio_version1(
     elif magic_code == AES256CBCEncryptIO.MAGIC_CODE:
         return AES256CBCDecryptIO(io, encrypt_password, nonce_or_iv, total_origin_len)
     else:
-        logging.warning(f"Unknown magic_code: {magic_code}")
-        return
+        logging.warning(f"Unknown magic_code: {magic_code!r}")
+        return None
 
 
 def _decryptio_version3(
     total_head: bytes, io: IO, encrypt_password: bytes
 ) -> Optional[DecryptIO]:
     if len(total_head) < PADDED_ENCRYPT_HEAD_WITH_SALT_LEN:
-        return
+        return None
 
     enc_head, salt_for_head = (
         total_head[:PADDED_ENCRYPT_HEAD_LEN],
@@ -768,16 +803,16 @@ def _decryptio_version3(
 
     head = aes256cbc_decrypt(enc_head, encrypt_key_for_head, iv_for_head)
 
-    b_mc, magic_code, padding_salt, total_origin_len = parse_head(head)
-    total_origin_len = u8x8_to_u64(total_origin_len)
+    b_mc, magic_code, padding_salt, total_origin_len_ = parse_head(head)
+    total_origin_len = u8x8_to_u64(total_origin_len_)
 
     salt = padding_salt[:8]
     encrypt_key, nonce_or_iv = generate_key_iv(encrypt_password, salt, 32, 16)
 
     if b_mc != BAIDUPCS_PY_CRYPTO_MAGIC_CODE:
-        return
+        return None
 
-    eio = None
+    eio: DecryptIO
     if magic_code == SimpleEncryptIO.MAGIC_CODE:
         eio = SimpleDecryptIO(io, encrypt_key, nonce_or_iv, total_origin_len)
     elif magic_code == ChaCha20EncryptIO.MAGIC_CODE:
@@ -785,8 +820,8 @@ def _decryptio_version3(
     elif magic_code == AES256CBCEncryptIO.MAGIC_CODE:
         eio = AES256CBCDecryptIO(io, encrypt_key, nonce_or_iv, total_origin_len)
     else:
-        logging.warning(f"Unknown magic_code: {magic_code}")
-        return
+        logging.warning(f"Unknown magic_code: {magic_code!r}")
+        return None
 
     eio._total_head_len = PADDED_ENCRYPT_HEAD_WITH_SALT_LEN
     return eio
@@ -831,7 +866,7 @@ class AutoDecryptRequest:
         self._kwargs = kwargs
         self._max_chunk_size = max_chunk_size
         self._encrypt_password = encrypt_password
-        self._dio = None
+        self._dio: Optional[IO] = None
         self._has_encrypted = False
         self._total_head_len = 0
         self._decrypted_count = 0
@@ -905,7 +940,9 @@ class AutoDecryptRequest:
                     self._dio = to_decryptio(BytesIO(raw_data), self._encrypt_password)
                     self._has_encrypted = isinstance(self._dio, DecryptIO)
                     self._total_head_len = (
-                        self._dio._total_head_len if self._has_encrypted else 0
+                        cast(DecryptIO, self._dio)._total_head_len
+                        if self._has_encrypted
+                        else 0
                     )
         self._parsed = True
 
@@ -965,6 +1002,7 @@ class AutoDecryptRequest:
 
         self._init()
 
+        assert self._content_length
         return self._content_length - self._total_head_len
 
     def read(self, _range: Tuple[int, int]) -> Generator[bytes, None, None]:
