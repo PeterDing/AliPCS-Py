@@ -3,6 +3,7 @@ from enum import Enum
 import math
 import time
 import threading
+from typing_extensions import Literal
 
 import requests  # type: ignore
 from requests_toolbelt import MultipartEncoder, MultipartEncoderMonitor
@@ -32,6 +33,13 @@ PCS_BAIDU_COM = "https://api.aliyundrive.com"
 
 PCS_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/77.0.3865.75 Safari/537.36"
 PCS_HEADERS = {"User-Agent": PCS_UA}
+
+CheckNameMode = Literal[
+    "overwrite",  # 直接覆盖，以后多版本有用
+    "auto_rename",  # 自动换一个随机名称
+    "refuse",  # 不会创建，告诉你已经存在
+    "ignore",  # 会创建重名的
+]
 
 
 class Method(Enum):
@@ -399,7 +407,7 @@ class AliPCS:
         pre_hash: str = "",
         content_hash: str = "",
         proof_code: str = "",
-        check_name_mode: str = "auto_rename",
+        check_name_mode: CheckNameMode = "auto_rename",
     ):
         """
         Args:

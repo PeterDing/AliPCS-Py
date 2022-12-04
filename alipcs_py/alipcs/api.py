@@ -17,7 +17,7 @@ import logging
 
 from alipcs_py.alipcs.errors import AliPCSError
 from alipcs_py.common.io import RangeRequestIO, DEFAULT_MAX_CHUNK_SIZE
-from alipcs_py.alipcs.pcs import AliPCS
+from alipcs_py.alipcs.pcs import AliPCS, CheckNameMode
 from alipcs_py.alipcs.inner import (
     PcsFile,
     PcsPreparedFile,
@@ -345,8 +345,17 @@ class AliPCSApi:
         pre_hash: str = "",
         content_hash: str = "",
         proof_code: str = "",
-        check_name_mode: str = "auto_rename",
+        check_name_mode: CheckNameMode = "auto_rename",
     ) -> PcsPreparedFile:
+        """Create a prepared file for uploading
+
+        check_name_mode(str):
+          'overwrite' (直接覆盖，以后多版本有用)
+          'auto_rename' (自动换一个随机名称)
+          'refuse' (不会创建，告诉你已经存在)
+          'ignore' (会创建重名的)
+        """
+
         info = self._alipcs.create_file(
             filename,
             dir_id,
@@ -364,8 +373,10 @@ class AliPCSApi:
         dir_id: str,
         size: int,
         pre_hash: str,
-        check_name_mode: str = "auto_rename",
+        check_name_mode: CheckNameMode = "auto_rename",
     ) -> PcsPreparedFile:
+        """Create a prepared file with `pre_hash` for uploading"""
+
         return self.create_file(
             filename, dir_id, size, pre_hash=pre_hash, check_name_mode=check_name_mode
         )
@@ -377,7 +388,7 @@ class AliPCSApi:
         size: int,
         content_hash: str,
         proof_code: str,
-        check_name_mode: str = "auto_rename",
+        check_name_mode: CheckNameMode = "auto_rename",
     ) -> PcsPreparedFile:
         return self.create_file(
             filename,
