@@ -16,7 +16,8 @@ from alipcs_py.common.downloader import MeDownloader
 from alipcs_py.common.progress_bar import (
     _progress,
     init_progress_bar,
-    progress_task_exists,
+    remove_progress_task,
+    reset_progress_task,
 )
 from alipcs_py.commands.sifter import Sifter, sift
 from alipcs_py.commands.log import get_logger
@@ -151,8 +152,7 @@ class Downloader(Enum):
             task_id = _progress.add_task("MeDownloader", start=False, title=localpath)
 
         def _wrap_done_callback(fut: Future):
-            if task_id is not None:
-                _progress.remove_task(task_id)
+            remove_progress_task(task_id)
             if done_callback:
                 done_callback(fut)
 
@@ -161,8 +161,7 @@ class Downloader(Enum):
                 _progress.update(task_id, completed=offset + 1)
 
         def except_callback(task_id: Optional[TaskID]):
-            if task_id is not None and progress_task_exists(task_id):
-                _progress.reset(task_id)
+            reset_progress_task(task_id)
 
         chunk_size_int = human_size_to_int(downloadparams.chunk_size)
         meDownloader = MeDownloader(
