@@ -39,3 +39,13 @@ def progress_task_exists(task_id: Optional[TaskID]) -> bool:
     if task_id is None:
         return False
     return task_id in _progress.task_ids
+
+
+def remove_progress_task(task_id: Optional[TaskID]):
+    if task_id is not None and progress_task_exists(task_id):
+        _progress.remove_task(task_id)
+
+
+def reset_progress_task(task_id: Optional[TaskID]):
+    if task_id is not None and progress_task_exists(task_id):
+        _progress.reset(task_id)
