@@ -13,8 +13,10 @@ from alipcs_py.commands.sifter import Sifter, sift
 from alipcs_py.commands.download import USER_AGENT
 from alipcs_py.commands.errors import CommandError
 from alipcs_py.common.file_type import MEDIA_EXTS
+from alipcs_py.common.path import join_path
 
 from rich import print
+
 
 _print = __builtins__["print"]  # type: ignore
 
@@ -134,7 +136,8 @@ def play_file(
         use_local_server = False
         download_url = api.shared_file_download_url(pcs_file.file_id, share_id)
     elif use_local_server:
-        download_url = f"{local_server}{quote(pcs_file.path)}"
+        remotepath = join_path("/", quote(pcs_file.path))
+        download_url = f"{local_server}{remotepath}"
         print("url:", download_url)
     else:
         if not pcs_file or pcs_file.is_dir:
