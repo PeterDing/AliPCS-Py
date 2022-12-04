@@ -82,9 +82,6 @@ def _teardown():
 
     logger.debug("`app`: _teardown: end")
 
-    # No use sys.exit() which only exits the main thread
-    os._exit(1)
-
 
 def _exit_progress_bar():
     if _progress.live._started:
@@ -100,6 +97,9 @@ def handle_signal(sign_num, frame):
 
     _exit_progress_bar()
     _teardown()
+
+    # No use sys.exit() which only exits the main thread
+    os._exit(1)
 
 
 signal.signal(signal.SIGINT, handle_signal)
@@ -598,7 +598,7 @@ def ls(
     if include:
         sifters.append(IncludeSifter(include, regex=False))
     if include_regex:
-        sifters.append(IncludeSifter(include, regex=True))
+        sifters.append(IncludeSifter(include_regex, regex=True))
     if exclude:
         sifters.append(ExcludeSifter(exclude, regex=False))
     if exclude_regex:
@@ -705,7 +705,7 @@ def search(
     if include:
         sifters.append(IncludeSifter(include, regex=False))
     if include_regex:
-        sifters.append(IncludeSifter(include, regex=True))
+        sifters.append(IncludeSifter(include_regex, regex=True))
     if exclude:
         sifters.append(ExcludeSifter(exclude, regex=False))
     if exclude_regex:
@@ -963,7 +963,7 @@ def download(
     if include:
         sifters.append(IncludeSifter(include, regex=False))
     if include_regex:
-        sifters.append(IncludeSifter(include, regex=True))
+        sifters.append(IncludeSifter(include_regex, regex=True))
     if exclude:
         sifters.append(ExcludeSifter(exclude, regex=False))
     if exclude_regex:
@@ -1087,7 +1087,7 @@ def play(
     if include:
         sifters.append(IncludeSifter(include, regex=False))
     if include_regex:
-        sifters.append(IncludeSifter(include, regex=True))
+        sifters.append(IncludeSifter(include_regex, regex=True))
     if exclude:
         sifters.append(ExcludeSifter(exclude, regex=False))
     if exclude_regex:
@@ -1095,6 +1095,11 @@ def play(
 
     local_server = ""
     if use_local_server:
+        if share_id or file_id:
+            assert ValueError(
+                "Recently local server can't play others shared items and using `file_id`"
+            )
+
         encrypt_password = encrypt_password or _encrypt_password(ctx)
 
         host = "localhost"
@@ -1230,14 +1235,16 @@ def upload(
     if not no_show_progress:
         init_progress_bar()
 
+    check_name_mode = "refuse" if not no_ignore_existing else "auto_rename"
+
     _upload(
         api,
         from_to_list,
         upload_type=getattr(UploadType, upload_type),
+        check_name_mode=check_name_mode,
         encrypt_password=encrypt_password,
         encrypt_type=getattr(EncryptType, encrypt_type),
         max_workers=max_workers,
-        ignore_existing=not no_ignore_existing,
         show_progress=not no_show_progress,
     )
 
@@ -1436,8 +1443,16 @@ def listsharedlinks(ctx):
     """
 
     shared_store = SharedStore()
-    shared_links = shared_store.list_shared_links()
-    display_shared_link_infos(*shared_links)
+
+    offset = 0
+    while True:
+        shared_links = shared_store.list_shared_links(offset=offset)
+        display_shared_link_infos(*shared_links)
+        yes = Prompt.ask("Next page", choices=["y", "n"], default="y")
+        if yes == "y":
+            offset += len(shared_links)
+        else:
+            break
 
 
 @app.command()
