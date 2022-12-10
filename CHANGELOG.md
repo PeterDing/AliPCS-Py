@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.3.3 - 2022-12-10
+
+### Updated
+
+- 更新 `AliPCS.meta` api。
+
 ## v0.3.2 - 2022-12-04
 
 ### Added
