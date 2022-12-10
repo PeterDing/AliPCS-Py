@@ -273,26 +273,27 @@ class AliPCS:
 
             headers["x-share-token"] = share_token
 
-        requests_ = []
+        responses = []
         for file_id in file_ids:
-            body = dict(
+            data = dict(
                 file_id=file_id,
+                fields="*",
+                # image_thumbnail_process="image/resize,w_400/format,jpeg",
+                # image_url_process="image/resize,w_375/format,jpeg",
+                # video_thumbnail_process="video/snapshot,t_1000,f_jpg,ar_auto,w_375",
             )
+
             if share_id:
-                body["share_id"] = share_id
+                data["share_id"] = share_id
             else:
-                body["drive_id"] = self.default_drive_id
+                data["drive_id"] = self.default_drive_id
 
-            req = dict(
-                method="POST",
-                url="/file/get",
-                id=file_id,
-                headers={"Content-Type": "application/json"},
-                body=body,
-            )
-            requests_.append(req)
+            url = PcsNode.Meta.url()
+            resp = self._request(Method.Post, url, headers=headers, json=data)
+            info = resp.json()
+            responses.append(dict(body=info))
 
-        return self.batch_operate(requests_, resource="file", headers=headers)
+        return dict(responses=responses)
 
     def exists(self, file_id: str) -> bool:
         if file_id == "root":
