@@ -478,7 +478,7 @@ def userdel(ctx):
         return
 
     user_id = ls[int(i) - 1][0].user_id
-    am.userdel(user_id)
+    am.delete_account(user_id)
     am.save()
 
     print(f"Delete user {user_id}")
