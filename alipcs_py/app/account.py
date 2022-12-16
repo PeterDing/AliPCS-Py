@@ -168,7 +168,7 @@ class AccountManager:
         """Change recent user with `PcsUser.user_id`
 
         Args:
-            who (int): `PcsUser.user_id`
+            user_id (str): `PcsUser.user_id`
         """
 
         assert user_id in self._accounts, f"No user {user_id}"
@@ -189,10 +189,10 @@ class AccountManager:
         self._accounts[account.user.user_id] = account
 
     def delete_account(self, user_id: str):
-        """Delete a user
+        """Delete an account
 
         Args:
-            who (int): `PcsUser.user_id`
+            user_id (str): `PcsUser.user_id`
         """
 
         if user_id in self._accounts:
