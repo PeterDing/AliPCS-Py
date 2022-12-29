@@ -167,6 +167,7 @@ class AliPCSApi:
         limit: int = 100,
         url_expire_sec: int = 7200,
         next_marker: str = "",
+        try_times: int = 0,
     ) -> Tuple[List[PcsFile], str]:
         """List the directory's contents
 
@@ -175,20 +176,41 @@ class AliPCSApi:
         more, using the returned `next_marker` parameter for next `list` call.
         """
 
-        info = self._alipcs.list(
-            file_id=file_id,
-            share_id=share_id,
-            desc=desc,
-            name=name,
-            time=time,
-            size=size,
-            all=all,
-            limit=limit,
-            url_expire_sec=url_expire_sec,
-            next_marker=next_marker,
-        )
-        next_marker = info["next_marker"]
-        return [PcsFile.from_(v) for v in info.get("items", [])], next_marker
+        try:
+            info = self._alipcs.list(
+                file_id=file_id,
+                share_id=share_id,
+                desc=desc,
+                name=name,
+                time=time,
+                size=size,
+                all=all,
+                limit=limit,
+                url_expire_sec=url_expire_sec,
+                next_marker=next_marker,
+            )
+            next_marker = info["next_marker"]
+            return [PcsFile.from_(v) for v in info.get("items", [])], next_marker
+        except AliPCSError as e:
+            if e.error_code == "ParamFlowException" and try_times < 5:
+                # Frequent requests leads to this error, I guess
+                from time import sleep as time_sleep
+
+                time_sleep(0.2)
+                return self.list(
+                    file_id,
+                    share_id=share_id,
+                    desc=desc,
+                    name=name,
+                    time=time,
+                    size=size,
+                    all=all,
+                    limit=limit,
+                    url_expire_sec=url_expire_sec,
+                    next_marker=next_marker,
+                    try_times=try_times + 1,
+                )
+            raise
 
     def list_iter(
         self,
