@@ -34,6 +34,8 @@ jinja2 = "^3.1.2"
 cryptography = "^38.0.3"
 cython = "^0.29.32"
 passlib = "^1.7.4"
+peewee = "^3.15.4"
+toml = "^0.10.2"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^7.2.0"

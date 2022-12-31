@@ -46,6 +46,8 @@ AliPCS-Py 是阿里云盘的非官方 api 和一个命令行运用程序。
 - [文件重命名](#文件重命名)
 - [拷贝文件](#拷贝文件)
 - [删除文件](#删除文件)
+- [搜索重复文件](#搜索重复文件)
+- [清除重复文件](#清除重复文件)
 - [下载文件或目录](#下载文件或目录)
 - [播放媒体文件](#播放媒体文件)
 - [上传文件](#上传文件)
@@ -565,6 +567,61 @@ AliPCS-Py remove --file-id ...
 | Option        | Description  |
 | ------------- | ------------ |
 | -i, --file-id | TEXT 文件 ID |
+
+## 搜索重复文件
+
+搜索当前用户的全部文件，找出 content-hash 相同的重复文件。  
+可能需要运行很长时间，默认缓存搜索结果。
+
+```
+AliPCS-Py finddup [OPTIONS]
+
+# 单线程工作
+AliPCS-Py finddup --thread 1
+# 少量搜索
+AliPCS-Py finddup --number 200 --save-rate 200
+# 大量搜索
+AliPCS-Py finddup --number 10000 --save-rate 1000 --thread 20 --no-show-progress
+# 输出保存的搜索结果
+AliPCS-Py finddup --skip --output --output-path result.txt
+# 删除搜索结果
+AliPCS-Py finddup --drop
+```
+
+### 选项
+
+| Option                                     | Description                      |
+| ------------------------------------------ | -------------------------------- |
+| -n,--number                                | 本次搜索目录数量，默认为 1000    |
+| -s,--save-rate                             | 每搜索多少目录后保存，默认为 500 |
+| -d,--drop                                  | 清除上次搜索结果                 |
+| -S/-nS, --show-progress/--no-show-progress | 显示搜索详细进度                 |
+| -t,--thread                                | 线程数，默认为 16                |
+| --skip                                     | 跳过本次搜索直接输出结果         |
+| -o,--output                                | 输出查重结果                     |
+| --output-path                              | 查重结果输出文件路径             |
+
+## 清除重复文件
+
+根据 finddup 保存的搜索结果，每组相同文件中保留一个，删除其他。  
+注意！保留的文件是随机的。
+
+```
+AliPCS-Py finddup --number 10000 --save-rate 1000 --thread 20 --no-show-progress
+# 先模拟运行一遍
+AliPCS-Py cleandup -v --dry-run > test.txt
+# 真实删除
+AliPCS-Py cleandup
+```
+
+### 选项
+
+| Option           | Description                        |
+| ---------------- | ---------------------------------- |
+| --dry-run        | 模拟运行不删除                     |
+| -v, --verbose    | 显示细节                           |
+| -c, --chunk-size | 单次请求删除的文件个数，默认为 100 |
+| -t, --thread     | 线程数，默认为 16                  |
 
 ## 下载文件或目录
 

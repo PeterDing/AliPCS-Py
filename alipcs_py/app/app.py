@@ -42,6 +42,9 @@ from alipcs_py.commands.list_files import list_files
 from alipcs_py.commands.cat import cat as _cat
 from alipcs_py.commands import file_operators
 from alipcs_py.commands.search import search as _search
+from alipcs_py.commands.duplicate import drop as _dropdup
+from alipcs_py.commands.duplicate import find_all_duplicates as _finddup
+from alipcs_py.commands.duplicate import clean_duplicate as _cleandup
 from alipcs_py.commands.download import (
     download as _download,
     Downloader,
@@ -662,6 +665,79 @@ def ls(
             csv=csv,
             only_dl_link=only_dl_link,
         )
+
+
+@app.command()
+@click.option("--number", "-n", type=int, default=1000, help="本次搜索目录数量，默认为 1000")
+@click.option("--save-rate", "-s", type=int, default=500, help="每搜索多少目录后保存，默认为 500")
+@click.option("--drop", "-d", is_flag=True, help="清除上次搜索结果")
+@click.option(
+    "--show-progress/--no-show-progress",
+    "-S/-nS",
+    is_flag=True,
+    default=True,
+    help="显示搜索详细进度",
+)
+@click.option("--thread", "-t", type=int, default=16, help="线程数，默认为 16")
+@click.option("--skip", is_flag=True, default=False, help="跳过本次搜索直接输出结果")
+@click.option("--output", "-o", is_flag=True, default=False, help="输出查重结果")
+@click.option("--output-path", type=str, default="", help="查重结果输出文件路径")
+@click.pass_context
+@handle_error
+@multi_user_do
+def finddup(
+    ctx, number, save_rate, drop, show_progress, thread, skip, output, output_path
+):
+    """搜索所有文件找出重复文件
+
+    \b
+    耗时可能极长，默认继续上一次的扫描。若结果较多请指定文件输出。
+
+    \b
+    examples:
+        AliPCS-Py finddup -n 400 -s 200 -nS -t 8 -o
+    """
+    api = _recent_api(ctx)
+    if not api:
+        return
+    if save_rate > number:
+        print("Error! save_rate should be less than number.")
+        return
+    if drop:
+        _dropdup()
+        return
+    if output_path != "" and output:
+        print("Error! Specify --output first if you want to set output path.")
+    _finddup(api, number, save_rate, show_progress, thread, skip, output, output_path)
+
+
+@app.command()
+@click.option("--dry-run", is_flag=True, default=False, help="模拟运行不删除")
+@click.option("--verbose", "-v", is_flag=True, default=False, help="显示细节")
+@click.option("--chunk-size", "-c", type=int, default=100, help="单次请求删除的文件个数，默认为 100")
+@click.option("--thread", "-t", type=int, default=16, help="线程数，默认为 16")
+@click.pass_context
+@handle_error
+@multi_user_do
+def cleandup(ctx, dry_run, verbose, chunk_size, thread):
+    """清除重复文件
+
+    \b
+    根据 finddup 保存的搜索结果，每组相同文件中保留一个，删除其他。
+    注意！保留的文件是随机的。
+
+    \b
+    examples:
+        AliPCS-Py finddup -n 5000 -s 1000 -nS
+        AliPCS-Py cleandup -v --dry-run > result.txt
+        AliPCS-Py cleandup
+    """
+    api = _recent_api(ctx)
+    if not api:
+        return
+    _cleandup(
+        api=api, dry_run=dry_run, verbose=verbose, chunk_size=chunk_size, threads=thread
+    )
 
 
 @app.command()
