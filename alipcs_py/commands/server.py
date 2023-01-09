@@ -216,7 +216,7 @@ def start_server(
     log_config = copy.deepcopy(uvicorn.config.LOGGING_CONFIG)
     log_config["formatters"]["access"][
         "fmt"
-    ] = '%(asctime)s - %(levelprefix)s %(client_addr)s - "%(request_line)s" %(status_code)s'
+    ] = '%(asctime)s - %(levelprefix)s %(client_addr)s - "%(request_line)s" %(status_code)s - %(msecs)d ms'
     uvicorn.run(
         "alipcs_py.commands.server:app",
         host=host,
