@@ -170,7 +170,10 @@ def play_dir(
     out_cmd: bool = False,
     local_server: str = "",
 ):
-    remotefiles = list(api.list_iter(pcs_file.file_id, share_id=share_id))
+    if pcs_file.path.startswith("/"):
+        remotefiles = list(api.list_path(pcs_file.path, share_id=share_id))
+    else:
+        remotefiles = list(api.list_iter(pcs_file.file_id, share_id=share_id))
     remotefiles = sift(remotefiles, sifters, recursive=recursive)
 
     if shuffle:
