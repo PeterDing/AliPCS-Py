@@ -1,5 +1,24 @@
 # Changelog
 
+## v0.4.0 - 2023-01-09
+
+### Breaking Changes
+
+- 下面几个 api 都增加了参数 `part_number`。
+
+  - `AliPCS.create_file`
+  - `AliPCS.prepare_file`
+  - `AliPCSApi.create_file`
+  - `AliPCSApi.prepare_file`
+
+  `part_number` 指明上传的该文件需要分几次上传。
+  这个参数需要用户自己计算出来。一般用 `ceiling(上传文件大小 / 单个上传分片大小)`，其中一般 `单个上传分片大小` 建议为 `80MB`。
+
+### Fixed
+
+- 修复上传大于 100G 的文件失败的问题。 (#4)
+- 修复播出路径出错的问题。
+
 ## v0.3.4 - 2022-12-16
 
 ### Fixed
