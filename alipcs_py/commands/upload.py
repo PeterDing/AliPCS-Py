@@ -3,6 +3,7 @@ from typing import Optional, List, Tuple, IO
 import os
 import time
 import functools
+import math
 from io import BytesIO
 from enum import Enum
 from pathlib import Path
@@ -74,6 +75,16 @@ def _toggle_stop(*args, **kwargs):
 
 # Pass "p" to toggle uploading start/stop
 KeyboardMonitor.register(KeyHandler("p", callback=_toggle_stop))
+
+
+def adjust_slice_size(slice_size: int, io_len: int) -> int:
+    """Adjust slice_size to not let part_number of the file to be larger than the 10_000"""
+
+    part_number = math.ceil(io_len / slice_size)
+    if part_number > 10_000:
+        return math.ceil(io_len / 10_000)
+    else:
+        return slice_size
 
 
 def to_remotepath(sub_path: str, remotedir: str) -> str:
@@ -335,6 +346,8 @@ def upload_file_concurrently(
         localpath, encrypt_password=encrypt_password, encrypt_type=encrypt_type
     )
     encrypt_io, encrypt_io_len, local_ctime, local_mtime = info
+    slice_size = adjust_slice_size(slice_size, encrypt_io_len)
+    part_number = math.ceil(encrypt_io_len / slice_size)
 
     # Progress bar
     if task_id is not None and progress_task_exists(task_id):
@@ -366,6 +379,7 @@ def upload_file_concurrently(
             dest_file_id,
             encrypt_io_len,
             slice1k_hash,
+            part_number=part_number,
             check_name_mode=check_name_mode,
         )
         if pcs_prepared_file.can_rapid_upload():
@@ -392,7 +406,11 @@ def upload_file_concurrently(
 
         if not pcs_prepared_file:
             pcs_prepared_file = api.create_file(
-                filename, dest_file_id, encrypt_io_len, check_name_mode=check_name_mode
+                filename,
+                dest_file_id,
+                encrypt_io_len,
+                part_number=part_number,
+                check_name_mode=check_name_mode,
             )
 
         reset_encrypt_io(encrypt_io)
@@ -573,6 +591,8 @@ def upload_file(
         localpath, encrypt_password=encrypt_password, encrypt_type=encrypt_type
     )
     encrypt_io, encrypt_io_len, local_ctime, local_mtime = info
+    slice_size = adjust_slice_size(slice_size, encrypt_io_len)
+    part_number = math.ceil(encrypt_io_len / slice_size)
 
     # Progress bar
     if task_id is not None and progress_task_exists(task_id):
@@ -601,6 +621,7 @@ def upload_file(
             dest_file_id,
             encrypt_io_len,
             slice1k_hash,
+            part_number=part_number,
             check_name_mode=check_name_mode,
         )
         if pcs_prepared_file.can_rapid_upload():
@@ -627,7 +648,11 @@ def upload_file(
 
         if not pcs_prepared_file:
             pcs_prepared_file = api.create_file(
-                filename, dest_file_id, encrypt_io_len, check_name_mode=check_name_mode
+                filename,
+                dest_file_id,
+                encrypt_io_len,
+                part_number=part_number,
+                check_name_mode=check_name_mode,
             )
 
         reset_encrypt_io(encrypt_io)
