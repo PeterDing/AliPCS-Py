@@ -393,11 +393,8 @@ class AliPCS:
         return resp.json()
 
     @staticmethod
-    def part_info_list(size: int) -> List[Dict[str, int]]:
-        return [
-            dict(part_number=i)
-            for i in range(1, math.ceil(size / UPLOAD_CHUNK_SIZE) + 1)
-        ]
+    def part_info_list(part_number: int) -> List[Dict[str, int]]:
+        return [dict(part_number=i) for i in range(1, part_number + 1)]
 
     @to_refresh_token
     def create_file(
@@ -407,23 +404,37 @@ class AliPCS:
         size: int,
         pre_hash: str = "",
         content_hash: str = "",
+        part_number: int = 1,
         proof_code: str = "",
         check_name_mode: CheckNameMode = "auto_rename",
     ):
-        """
-        Args:
-            size (int):
-                the length of total content.
-            pre_hash (str):
-                The sha1 of the IO first 1k bytes
-            content_hash (str):
-                the sha1 of total content.
+        """Create a prepared file for uploading
+
+        filename (str):
+            The name of file.
+        dir_id (str):
+            The directory id where the file is at.
+        size (int):
+            the length of total content.
+        pre_hash (str):
+            The sha1 of the IO first 1k bytes
+        content_hash (str):
+            the sha1 of total content.
+        part_number (int):
+            The number of one file's chunks to upload.
+            The server will returns the number of urls to prepare to upload the file's chunks.
+            `WARNNING`: this value MUST be set by caller.
+        check_name_mode(str):
+            'overwrite' (直接覆盖，以后多版本有用)
+            'auto_rename' (自动换一个随机名称)
+            'refuse' (不会创建，告诉你已经存在)
+            'ignore' (会创建重名的)
         """
 
         url = PcsNode.CreateWithFolders.url()
         data = dict(
             drive_id=self.default_drive_id,
-            part_info_list=self.part_info_list(size),
+            part_info_list=self.part_info_list(part_number),
             parent_file_id=dir_id,
             name=filename,
             type="file",
@@ -439,8 +450,17 @@ class AliPCS:
         resp = self._request(Method.Post, url, json=data)
         return resp.json()
 
-    def prepare_file(self, filename: str, dir_id: str, size: int, pre_hash: str = ""):
-        return self.create_file(filename, dir_id, size, pre_hash=pre_hash)
+    def prepare_file(
+        self,
+        filename: str,
+        dir_id: str,
+        size: int,
+        pre_hash: str = "",
+        part_number: int = 1,
+    ):
+        return self.create_file(
+            filename, dir_id, size, pre_hash=pre_hash, part_number=part_number
+        )
 
     @assert_ok
     @to_refresh_token

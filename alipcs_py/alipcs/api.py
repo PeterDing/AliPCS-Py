@@ -344,16 +344,31 @@ class AliPCSApi:
         size: int,
         pre_hash: str = "",
         content_hash: str = "",
+        part_number: int = 1,
         proof_code: str = "",
         check_name_mode: CheckNameMode = "auto_rename",
     ) -> PcsPreparedFile:
         """Create a prepared file for uploading
 
+        filename (str):
+            The name of file.
+        dir_id (str):
+            The directory id where the file is at.
+        size (int):
+            the length of total content.
+        pre_hash (str):
+            The sha1 of the IO first 1k bytes.
+        content_hash (str):
+            the sha1 of total content.
+        part_number (int):
+            The number of one file's chunks to upload.
+            The server will returns the number of urls to prepare to upload the file's chunks.
+            `WARNNING`: this value MUST be set by caller.
         check_name_mode(str):
-          'overwrite' (直接覆盖，以后多版本有用)
-          'auto_rename' (自动换一个随机名称)
-          'refuse' (不会创建，告诉你已经存在)
-          'ignore' (会创建重名的)
+            'overwrite' (直接覆盖，以后多版本有用)
+            'auto_rename' (自动换一个随机名称)
+            'refuse' (不会创建，告诉你已经存在)
+            'ignore' (会创建重名的)
         """
 
         info = self._alipcs.create_file(
@@ -362,6 +377,7 @@ class AliPCSApi:
             size,
             pre_hash=pre_hash,
             content_hash=content_hash,
+            part_number=part_number,
             proof_code=proof_code,
             check_name_mode=check_name_mode,
         )
@@ -373,12 +389,18 @@ class AliPCSApi:
         dir_id: str,
         size: int,
         pre_hash: str,
+        part_number: int = 1,
         check_name_mode: CheckNameMode = "auto_rename",
     ) -> PcsPreparedFile:
         """Create a prepared file with `pre_hash` for uploading"""
 
         return self.create_file(
-            filename, dir_id, size, pre_hash=pre_hash, check_name_mode=check_name_mode
+            filename,
+            dir_id,
+            size,
+            pre_hash=pre_hash,
+            part_number=part_number,
+            check_name_mode=check_name_mode,
         )
 
     def rapid_upload_file(
