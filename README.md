@@ -435,6 +435,7 @@ AliPCS-Py ls -i file_id1 -i file_id2 -i ...
 | --no-highlight, --NH       | 取消匹配高亮                                          |
 | -S, --show-size            | 显示文件大小                                          |
 | -D, --show-date            | 显示文件创建时间                                      |
+| --show-file-id, --ID       | 显示文件 ID                                           |
 | -M, --show-hash            | 显示文件 sha1                                         |
 | -A, --show-absolute-path   | 显示文件绝对路径                                      |
 | --show-dl-link, --DL       | 显示文件下载连接                                      |
