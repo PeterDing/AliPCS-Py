@@ -877,9 +877,9 @@ class AutoDecryptRequest:
         # Total raw content length
         self._content_length: Optional[int] = None
         # Total raw content md5
-        self._content_md5: Optional[str] = None
+        self._content_hash: Optional[str] = None
         # Total raw content crc32
-        self._content_crc32: Optional[int] = None
+        self._content_crc64: Optional[int] = None
 
     def _init(self):
         """Initiate request info"""
@@ -901,36 +901,34 @@ class AutoDecryptRequest:
         return self._content_length
 
     @property
-    def content_md5(self) -> Optional[str]:
+    def content_hash(self) -> Optional[str]:
         """Remote content length"""
 
         self._init()
         assert self._content_length
-        return self._content_md5
+        return self._content_hash
 
     @property
-    def content_crc32(self) -> Optional[int]:
+    def content_crc64(self) -> Optional[int]:
         """Remote content length"""
 
         self._init()
         assert self._content_length
-        return self._content_crc32
+        return self._content_crc64
 
     def _parse_rapid_upload_info(self, resp: Response):
         if not resp.ok or self._content_length:
             return
 
         headers = resp.headers
-        if headers.get("x-bs-file-size"):
-            self._content_length = int(headers["x-bs-file-size"])
-        if not self._content_length and headers.get("Content-Range"):
+        if headers.get("Content-Range"):
             self._content_length = int(headers["Content-Range"].split("/")[-1])
 
-        if headers.get("Content-MD5"):
-            self._content_md5 = headers["Content-MD5"]
+        if headers.get("x-oss-hash-value"):
+            self._content_hash = headers["x-oss-hash-value"]
 
-        if headers.get("x-bs-meta-crc32"):
-            self._content_crc32 = int(headers["x-bs-meta-crc32"])
+        if headers.get("x-oss-hash-crc64ecma"):
+            self._content_crc64 = int(headers["x-oss-hash-crc64ecma"])
 
     def _parse_crypto(self):
         if self._encrypt_password:
@@ -963,13 +961,6 @@ class AutoDecryptRequest:
                         resp.content[:1000],
                     )
 
-                    # Error: 31626: user is not authorized, hitcode:122
-                    # Error: 31326: user is not authorized, hitcode:117
-                    # Request is temporally blocked.
-                    # This error occurs when url is from `AliPCS.download_link(..., pcs=True)`
-                    if b"user is not authorized" in resp.content:
-                        time.sleep(2)
-                        continue
                 self._parse_rapid_upload_info(resp)
                 break
             except Exception as err:
