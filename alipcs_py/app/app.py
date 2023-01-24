@@ -974,7 +974,7 @@ def download(
     else:
         encrypt_password = encrypt_password or _encrypt_password(ctx)
 
-    if not quiet:
+    if not quiet and downloader == Downloader.me.name:
         init_progress_bar()
 
     if share_id or share_url:
