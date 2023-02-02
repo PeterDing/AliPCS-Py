@@ -22,6 +22,8 @@ build = "build.py"
 python = "^3.7"
 requests = ">=2.28"
 requests-toolbelt = ">=0.10"
+peewee = ">=3.15"
+toml = ">=0.10"
 rich = ">=12.6"
 pillow = ">=9.3"
 click = ">=8.1"
@@ -49,6 +51,4 @@ AliPCS-Py = 'alipcs_py.app:main'
 reportGeneralTypeIssues = true
 
 [build-system]
-requires = ["poetry-core>=1.0.0", "cython", "wheel", "setuptools"]
-build-backend = "poetry.core.masonry.api"
-
+requires = ["cython", "wheel", "setuptools"]
