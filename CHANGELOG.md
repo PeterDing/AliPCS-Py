@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.4.1 - 2023-02-02
+
+### Fixed
+
+- 修复安装失败。
+
+### Updated
+
+- 更新依赖。
+
 ## v0.4.0 - 2023-01-09
 
 ### Breaking Changes
