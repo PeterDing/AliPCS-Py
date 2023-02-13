@@ -1,5 +1,7 @@
 # AliPCS-Py
 
+**2023-02-14 阿里网盘 API 下载接口不再提供第三方应用使用。需要申请使用官方 API 接口。目前官方 API 接口在内测中。本项目已提交内测申请，等待回复中。在此期间下载功能不能使用。**
+
 [![PyPI version](https://badge.fury.io/py/alipcs-py.svg)](https://badge.fury.io/py/alipcs-py)
 ![Build](https://github.com/PeterDing/AliPCS-Py/workflows/AliPCS-Py%20Build%20&%20Test/badge.svg)
 
