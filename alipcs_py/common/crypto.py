@@ -1,4 +1,4 @@
-from typing import Union, List, Tuple, IO, Callable, Any
+from typing import Union, List, Tuple, IO, Callable, Any, cast
 import re
 import os
 import subprocess
@@ -11,6 +11,9 @@ from hashlib import md5, sha1
 import base64
 
 from passlib.crypto.digest import pbkdf1
+
+import ecdsa
+from ecdsa import SigningKey, VerifyingKey
 
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.primitives.padding import PKCS7
@@ -327,3 +330,9 @@ def aes256cbc_encrypt(data: bytes, key: bytes, iv: bytes):
 def aes256cbc_decrypt(data: bytes, key: bytes, iv: bytes):
     crypto = AES256CBCCryptography(key, iv)
     return crypto.decrypt(data) + crypto._decryptor.finalize()
+
+
+def generate_secp256k1_keys() -> Tuple[SigningKey, VerifyingKey]:
+    private_key = ecdsa.SigningKey.generate(curve=ecdsa.SECP256k1)
+    public_key: VerifyingKey = cast(VerifyingKey, private_key.verifying_key)
+    return private_key, public_key
