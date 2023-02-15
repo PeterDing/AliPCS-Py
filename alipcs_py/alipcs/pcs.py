@@ -21,12 +21,15 @@ from alipcs_py.common.io import (
     total_len,
 )
 from alipcs_py.common.cache import timeout_cache
+from alipcs_py.common.crypto import generate_secp256k1_keys
 from alipcs_py.alipcs.errors import AliPCSError, parse_error, to_refresh_token
 from alipcs_py.alipcs.errors import assert_ok
 from alipcs_py.alipcs.inner import SharedAuth
 
 
 UPLOAD_CHUNK_SIZE = 10 * constant.OneM
+
+APP_ID = "5dde4e1bdf9e4966b387ba58f4b3fdc3"
 
 PCS_BAIDU_COM = "https://api.aliyundrive.com"
 # PCS_BAIDU_COM = 'http://127.0.0.1:8888'
@@ -51,7 +54,9 @@ class Method(Enum):
 class PcsNode(Enum):
     f"""PCS Nodes which use {PCS_BAIDU_COM}"""
 
+    Token = "v2/account/token"
     Refresh = "token/refresh"
+    CreateSession = "users/v1/users/device/create_session"
 
     FileList = "adrive/v3/file/list"
     Meta = "v2/file/get"
@@ -116,9 +121,11 @@ class AliPCS:
         self._nick_name = nick_name
         self._token_type = token_type
         self._device_id = device_id
+        self._signature = ""
         self._default_drive_id = default_drive_id
         self._role = role
         self._status = status
+        self._nonce = 0
 
     def __str__(self) -> str:
         return f"""AliPCS
@@ -131,10 +138,20 @@ class AliPCS:
     token_type: {self.token_type}
     expire_time: {self.expire_time}
     device_id: {self.device_id}
+    signature: {self.signature}
     default_drive_id: {self.default_drive_id}
     role: {self.role}
     status: {self.status}
+    nonce: {self._nonce}
     """
+
+    def get_token(self):
+        """Get authorization token"""
+
+        url = PcsNode.Token.url()
+        data = dict(refresh_token=self.refresh_token, grant_type="refresh_token")
+        resp = self._request(Method.Post, url, json=data)
+        return resp.json()
 
     @property
     def refresh_token(self) -> str:
@@ -180,6 +197,12 @@ class AliPCS:
     def device_id(self) -> str:
         self.refresh_token
         return self._device_id
+
+    @property
+    def signature(self) -> str:
+        if not self._signature:
+            self.create_session()
+        return self._signature
 
     @property
     def default_drive_id(self) -> str:
@@ -262,10 +285,45 @@ class AliPCS:
         self._role = info["role"]
         self._status = info["status"]
 
+        return info
+
+    def create_session(self):
+        """Create session"""
+
+        assert self.device_id, "No AliPCS._device_id"
+        assert self.user_id, "No AliPCS._user_id"
+
+        device_id = self.device_id
+        user_id = self.user_id
+        nonce = self._nonce
+
+        private_key, public_key = generate_secp256k1_keys()
+        message = f"{APP_ID}:{device_id}:{user_id}:{nonce}".encode()
+        signature: str = private_key.sign(message).hex()
+        sign = signature + "00"
+
+        url = PcsNode.CreateSession.url()
+        data = dict(
+            deviceName="Chrome浏览器",
+            modelName="Windows网页版",
+            pubKey=public_key.to_string().hex(),
+        )
+
+        headers = dict(**PCS_HEADERS)
+        headers.update({"x-device-id": device_id, "x-signature": sign})
+
+        resp = self._request(Method.Post, url, headers=headers, json=data)
+        info = resp.json()
+        if info["result"] and info["success"]:
+            self._signature = sign
+
+        return resp.json()
+
     def meta(self, *file_ids: str, share_id: str = None):
         assert "root" not in file_ids, '"root" has NOT meta info'
 
         headers = dict(PCS_HEADERS)
+        headers.update({"x-device-id": self.device_id, "x-signature": self.signature})
 
         if share_id:
             share_token = self.share_token(share_id)
@@ -873,7 +931,9 @@ class AliPCS:
     def download_link(self, file_id: str):
         url = PcsNode.DownloadUrl.url()
         data = dict(drive_id=self.default_drive_id, file_id=file_id)
-        resp = self._request(Method.Post, url, json=data)
+        headers = dict(PCS_HEADERS)
+        headers.update({"x-device-id": self.device_id, "x-signature": self.signature})
+        resp = self._request(Method.Post, url, headers=headers, json=data)
         return resp.json()
 
     def file_stream(
