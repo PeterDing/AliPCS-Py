@@ -70,19 +70,19 @@ def display_files(
     headers.append("\t")
     if show_size:
         header = "Size"
-        table.add_column(header, justify="right")
+        table.add_column(header, justify="right", overflow="fold")
         headers.append(header)
     if show_date:
         header = "Updated Time"
-        table.add_column(header, justify="center")
+        table.add_column(header, justify="center", overflow="fold")
         headers.append(header)
     if show_file_id:
         header = "File ID"
-        table.add_column(header, justify="left")
+        table.add_column(header, justify="left", overflow="fold")
         headers.append(header)
     if show_hash:
         header = "SHA1"
-        table.add_column(header, justify="left")
+        table.add_column(header, justify="left", overflow="fold")
         headers.append(header)
     header = "Path"
     table.add_column(header, justify="left", overflow="fold")
