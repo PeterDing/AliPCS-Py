@@ -31,9 +31,10 @@ def assert_ok(func):
     return check
 
 
-def to_refresh_token(func):
+def handle_error(func):
     @wraps(func)
     def refresh(*args, **kwargs):
+        code = "This is impossible !!!"
         for _ in range(2):
             self = args[0]
 
@@ -42,6 +43,7 @@ def to_refresh_token(func):
             if code == "AccessTokenInvalid":
                 self.refresh()
                 continue
+
             elif code == "ShareLinkTokenInvalid":
                 varnames = func.__code__.co_varnames
                 idx = varnames.index("share_id")
@@ -55,8 +57,12 @@ def to_refresh_token(func):
                     share_auth.expire_time = 0.0
                 continue
 
+            elif code == "DeviceSessionSignatureInvalid":
+                self._signature = ""
+                continue
+
             return info
 
-        raise parse_error("AccessTokenInvalid")
+        raise parse_error(code)
 
     return refresh

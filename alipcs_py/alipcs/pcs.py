@@ -22,7 +22,7 @@ from alipcs_py.common.io import (
 )
 from alipcs_py.common.cache import timeout_cache
 from alipcs_py.common.crypto import generate_secp256k1_keys
-from alipcs_py.alipcs.errors import AliPCSError, parse_error, to_refresh_token
+from alipcs_py.alipcs.errors import AliPCSError, parse_error, handle_error
 from alipcs_py.alipcs.errors import assert_ok
 from alipcs_py.alipcs.inner import SharedAuth
 
@@ -391,7 +391,7 @@ class AliPCS:
             return False
 
     @assert_ok
-    @to_refresh_token
+    @handle_error
     def list(
         self,
         file_id: str,
@@ -454,7 +454,7 @@ class AliPCS:
     def part_info_list(part_number: int) -> List[Dict[str, int]]:
         return [dict(part_number=i) for i in range(1, part_number + 1)]
 
-    @to_refresh_token
+    @handle_error
     def create_file(
         self,
         filename: str,
@@ -521,7 +521,7 @@ class AliPCS:
         )
 
     @assert_ok
-    @to_refresh_token
+    @handle_error
     def rapid_upload_file(
         self, filename: str, dir_id: str, size: int, content_hash: str, proof_code: str
     ):
@@ -556,7 +556,7 @@ class AliPCS:
         )
 
     @assert_ok
-    @to_refresh_token
+    @handle_error
     def upload_complete(self, file_id: str, upload_id: str):
         url = PcsNode.UploadComplete.url()
         data = dict(
@@ -568,7 +568,7 @@ class AliPCS:
         return resp.json()
 
     @assert_ok
-    @to_refresh_token
+    @handle_error
     def search(
         self,
         keyword: str,
@@ -606,7 +606,7 @@ class AliPCS:
         return resp.json()
 
     @assert_ok
-    @to_refresh_token
+    @handle_error
     def makedir(self, dir_id: str, name: str):
         url = PcsNode.CreateWithFolders.url()
         data = dict(
@@ -620,7 +620,7 @@ class AliPCS:
         return resp.json()
 
     @assert_ok
-    @to_refresh_token
+    @handle_error
     def batch_operate(
         self,
         requests_: List[Dict[str, Any]],
@@ -665,7 +665,7 @@ class AliPCS:
         return self.batch_operate(requests_, resource="file")
 
     @assert_ok
-    @to_refresh_token
+    @handle_error
     def rename(self, file_id: str, name: str):
         """Rename the file to `name`"""
 
@@ -718,7 +718,7 @@ class AliPCS:
         return self.batch_operate(requests_, resource="file")
 
     @assert_ok
-    @to_refresh_token
+    @handle_error
     def check_available(self, file_ids: str):
         """Check whether file_ids are available"""
 
@@ -731,7 +731,7 @@ class AliPCS:
         return resp.json()
 
     @assert_ok
-    @to_refresh_token
+    @handle_error
     def share(
         self, *file_ids: str, password: str = "", period: int = 0, description: str = ""
     ):
@@ -756,7 +756,7 @@ class AliPCS:
         return resp.json()
 
     @assert_ok
-    @to_refresh_token
+    @handle_error
     def list_shared(self, next_marker: str = ""):
         """List shared links"""
 
@@ -788,7 +788,7 @@ class AliPCS:
         return self.batch_operate(requests_, resource="file")
 
     @assert_ok
-    @to_refresh_token
+    @handle_error
     def get_share_token(self, share_id: str, share_password: str = ""):
         """Get share token"""
 
@@ -817,7 +817,7 @@ class AliPCS:
         return shared_auth.share_token
 
     @assert_ok
-    @to_refresh_token
+    @handle_error
     def shared_info(self, share_id: str):
         """Get shared items info"""
 
@@ -867,7 +867,7 @@ class AliPCS:
         return self.batch_operate(requests_, resource="file", headers=headers)
 
     @assert_ok
-    @to_refresh_token
+    @handle_error
     def _get_shared_file_download_url(
         self,
         shared_file_id: str,
@@ -909,7 +909,7 @@ class AliPCS:
         return resp.headers["Location"]
 
     @assert_ok
-    @to_refresh_token
+    @handle_error
     def user_info(self):
         url = PcsNode.PersonalInfo.url()
         resp = self._request(Method.Post, url, json={})
@@ -927,7 +927,7 @@ class AliPCS:
 
     @timeout_cache(1 * 60 * 60)  # 1 hour timeout
     @assert_ok
-    @to_refresh_token
+    @handle_error
     def download_link(self, file_id: str):
         url = PcsNode.DownloadUrl.url()
         data = dict(drive_id=self.default_drive_id, file_id=file_id)
