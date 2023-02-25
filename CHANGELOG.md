@@ -1,6 +1,12 @@
 # Changelog
 
-## v0.5.0 - 2023-02-22
+## v0.5.2 - 2023-02-25
+
+### Fixed
+
+- 修复 `DeviceSessionSignatureInvalid` 报错。支持自动更新 `signature`。
+
+## v0.5.1 - 2023-02-22
 
 ### Fixed
 
