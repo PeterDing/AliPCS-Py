@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.5.3 - 2023-02-28
+
+### Updated
+
+- 因为 `device_id` 不再在 `AliPCS.user_info` 中返回，需要把运行环境中的 `device_id` 加入到 `user_info`。
+
 ## v0.5.2 - 2023-02-25
 
 ### Fixed
