@@ -159,6 +159,7 @@ class AliPCS:
             if (
                 not self._access_token
                 or (now_timestamp() - 1 * 60 * 60) >= self._expire_time
+                or not self._device_id
             ):
                 self.refresh()
             return self._refresh_token

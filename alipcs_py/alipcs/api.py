@@ -677,6 +677,7 @@ class AliPCSApi:
         user_info.access_token = self.access_token
         user_info.token_type = self.token_type
         user_info.expire_time = self.expire_time
+        user_info.device_id = self.device_id
         return user_info
 
     def download_link(self, file_id: str) -> Optional[PcsDownloadUrl]:
