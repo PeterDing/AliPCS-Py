@@ -89,7 +89,6 @@ T = TypeVar("T", PcsFile, str)
 
 def sift(objs: List[T], sifters: List[Sifter], recursive: bool = False) -> List[T]:
     if sifters:
-
         obj_dirs: List[T]
         if recursive:
             # If it is recursive, we ignore to sift dirs.

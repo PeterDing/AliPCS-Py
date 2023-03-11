@@ -496,7 +496,6 @@ class AES256CBCEncryptIO(EncryptIO):
 
         # The end encryption
         if self._origin_io_offset == self._total_origin_len:
-
             # Take all remainder
             if self._origin_cache:
                 ori_cn += bytes(self._origin_cache)
