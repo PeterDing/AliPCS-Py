@@ -136,8 +136,7 @@ def play_file(
         use_local_server = False
         download_url = api.shared_file_download_url(pcs_file.file_id, share_id)
     elif use_local_server:
-        remotepath = join_path("/", quote(pcs_file.path))
-        download_url = f"{local_server}{remotepath}"
+        download_url = f"{local_server}/__fileid__/?file_id={pcs_file.file_id}"
         print("url:", download_url)
     else:
         if not pcs_file or pcs_file.is_dir:
