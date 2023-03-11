@@ -1,4 +1,4 @@
-from typing import Optional, Dict
+from typing import Optional, Dict, Union
 from pathlib import Path
 import os
 import mimetypes
@@ -45,11 +45,56 @@ def fake_io(io: RangeRequestIO, start: int = 0, end: int = -1):
         yield b
 
 
+def get_file(file_id: str, remotepath: str, _range: Optional[str]):
+    global _api
+    assert _api
+
+    try:
+        fs = _api.file_stream(file_id, encrypt_password=_encrypt_password)
+    except Exception as err:
+        raise HTTPException(
+            status_code=500, detail=f"Error: {err}, remotepath: {remotepath}"
+        )
+
+    if not fs:
+        raise HTTPException(status_code=404, detail=f"No download link: {remotepath}")
+
+    length = len(fs)
+
+    headers: Dict[str, str] = {
+        "accept-ranges": "bytes",
+        "connection": "Keep-Alive",
+        "access-control-allow-origin": "*",
+    }
+
+    ext = os.path.splitext(remotepath)[-1]
+    content_type = mimetypes.types_map.get(ext)
+
+    if content_type:
+        headers["content-type"] = content_type
+
+    if _range and fs.seekable():
+        assert _range.startswith("bytes=")
+
+        status_code = 206
+        start, end = _range[6:].split("-")
+        _s, _e = int(start or 0), int(end or length - 1) + 1
+        _iter_io = fake_io(fs, _s, _e)
+        headers["content-range"] = f"bytes {_s}-{_e-1}/{length}"
+        headers["content-length"] = str(_e - _s)
+    else:
+        status_code = 200
+        _iter_io = fake_io(fs)
+        headers["content-length"] = str(length)
+    return StreamingResponse(_iter_io, status_code=status_code, headers=headers)
+
+
 async def handle_request(
     request: Request,
     remotepath: str,
     order: str = "asc",  # desc , asc
     sort: str = "name",  # name, time, size
+    file_id: str = "",
 ):
     desc = order == "desc"
     name = sort == "name"
@@ -60,6 +105,11 @@ async def handle_request(
     global _api
     assert _api
 
+    _range = request.headers.get("range")
+
+    if file_id:
+        return get_file(file_id, remotepath, _range)
+
     remotepath = remotepath.strip("/")
 
     _rp = join_path(_root_dir, remotepath)
@@ -67,8 +117,6 @@ async def handle_request(
     # Anti path traversal attack
     if not _rp.startswith(_root_dir):
         raise HTTPException(status_code=404, detail="Item not found")
-
-    _range = request.headers.get("range")
 
     rpf = _api.path(_rp)
     if not rpf:
@@ -86,6 +134,7 @@ async def handle_request(
             p = Path(f.path)
             entries.append(
                 (
+                    f.file_id,
                     f.is_dir,
                     p.name,
                     quote(p.name),
@@ -98,45 +147,7 @@ async def handle_request(
         )
         return HTMLResponse(cn)
     else:
-        try:
-            fs = _api.file_stream(rpf.file_id, encrypt_password=_encrypt_password)
-        except Exception as err:
-            print("Error:", err)
-            raise HTTPException(
-                status_code=500, detail=f"Error: {err}, remotepath: {_rp}"
-            )
-
-        if not fs:
-            raise HTTPException(status_code=404, detail=f"No download link: {_rp}")
-
-        length = len(fs)
-
-        headers: Dict[str, str] = {
-            "accept-ranges": "bytes",
-            "connection": "Keep-Alive",
-            "access-control-allow-origin": "*",
-        }
-
-        ext = os.path.splitext(remotepath)[-1]
-        content_type = mimetypes.types_map.get(ext)
-
-        if content_type:
-            headers["content-type"] = content_type
-
-        if _range and fs.seekable():
-            assert _range.startswith("bytes=")
-
-            status_code = 206
-            start, end = _range[6:].split("-")
-            _s, _e = int(start or 0), int(end or length - 1) + 1
-            _iter_io = fake_io(fs, _s, _e)
-            headers["content-range"] = f"bytes {_s}-{_e-1}/{length}"
-            headers["content-length"] = str(_e - _s)
-        else:
-            status_code = 200
-            _iter_io = fake_io(fs)
-            headers["content-length"] = str(length)
-        return StreamingResponse(_iter_io, status_code=status_code, headers=headers)
+        return get_file(rpf.file_id, remotepath, _range)
 
 
 _security = HTTPBasic()
@@ -162,10 +173,21 @@ def make_auth_http_server(path: str = ""):
         if username:
             return response
 
+    @app.get("/__fileid__/")
+    async def auth_file_id(
+        username: str = Depends(to_auth), response: Response = Depends(handle_request)
+    ):
+        if username:
+            return response
+
 
 def make_http_server(path: str = ""):
     @app.get("%s/{remotepath:path}" % path)
     async def http_server(response: Response = Depends(handle_request)):
+        return response
+
+    @app.get("/__fileid__/")
+    async def file_id(response: Response = Depends(handle_request)):
         return response
 
 
