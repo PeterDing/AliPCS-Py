@@ -1,25 +1,15 @@
 from typing import Optional, Dict, List, Union, Any, Callable, IO
 from enum import Enum
-import math
-import time
 import threading
+from urllib.parse import urljoin
 from typing_extensions import Literal
 
 import requests  # type: ignore
 from requests_toolbelt import MultipartEncoder, MultipartEncoderMonitor
 
-from alipcs_py.common.date import (
-    now_timestamp,
-    iso_8601_to_timestamp,
-    timestamp_to_iso_8601,
-)
+from alipcs_py.common.date import now_timestamp, iso_8601_to_timestamp, timestamp_to_iso_8601
 from alipcs_py.common import constant
-from alipcs_py.common.io import (
-    RangeRequestIO,
-    DEFAULT_MAX_CHUNK_SIZE,
-    ChunkIO,
-    total_len,
-)
+from alipcs_py.common.io import RangeRequestIO, DEFAULT_MAX_CHUNK_SIZE, ChunkIO, total_len
 from alipcs_py.common.cache import timeout_cache
 from alipcs_py.common.crypto import generate_secp256k1_keys
 from alipcs_py.alipcs.errors import AliPCSError, parse_error, handle_error
@@ -31,11 +21,12 @@ UPLOAD_CHUNK_SIZE = 10 * constant.OneM
 
 APP_ID = "5dde4e1bdf9e4966b387ba58f4b3fdc3"
 
-PCS_BAIDU_COM = "https://api.aliyundrive.com"
-# PCS_BAIDU_COM = 'http://127.0.0.1:8888'
+ALIYUNDRIVE_COM = "https://www.aliyundrive.com"
+ALIYUNDRIVE_COM_API = "https://api.aliyundrive.com"
+ALIYUNDRIVE_OPENAPI_DOMAIN = "https://openapi.aliyundrive.com"
 
-PCS_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/77.0.3865.75 Safari/537.36"
-PCS_HEADERS = {"User-Agent": PCS_UA}
+PCS_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36"
+PCS_HEADERS = {"Origin": ALIYUNDRIVE_COM[:-1], "Referer": ALIYUNDRIVE_COM + "/", "User-Agent": PCS_UA}
 
 CheckNameMode = Literal[
     "overwrite",  # 直接覆盖，以后多版本有用
@@ -52,7 +43,7 @@ class Method(Enum):
 
 
 class PcsNode(Enum):
-    f"""PCS Nodes which use {PCS_BAIDU_COM}"""
+    f"""Aliyundrive PCS Nodes which use {ALIYUNDRIVE_COM_API}"""
 
     Token = "v2/account/token"
     Refresh = "token/refresh"
@@ -85,7 +76,7 @@ class PcsNode(Enum):
     UserVip = "business/v1.0/users/vip/info"
 
     def url(self) -> str:
-        return f"{PCS_BAIDU_COM}/{self.value}"
+        return f"{ALIYUNDRIVE_COM_API}/{self.value}"
 
 
 # The Lock is used to refresh token
@@ -101,11 +92,11 @@ class AliPCS:
         self,
         refresh_token: str,
         access_token: str = "",
+        token_type: str = "Bearer",
         expire_time: int = 0,
         user_id: str = "",
         user_name: str = "",
         nick_name: str = "",
-        token_type: str = "",
         device_id: str = "",
         default_drive_id: str = "",
         role: str = "",
@@ -114,12 +105,12 @@ class AliPCS:
         self._session = requests.Session()
         self._refresh_token = refresh_token
         self._access_token = access_token
+        self._token_type = token_type
         self._expire_time = expire_time
 
         self._user_id = user_id
         self._user_name = user_name
         self._nick_name = nick_name
-        self._token_type = token_type
         self._device_id = device_id
         self._signature = ""
         self._default_drive_id = default_drive_id
@@ -133,10 +124,12 @@ class AliPCS:
     user_id: {self.user_id}
     user_name: {self.user_name}
     nick_name: {self.nick_name}
+
     refresh_token: {self.refresh_token}
     access_token: {self.access_token}
     token_type: {self.token_type}
     expire_time: {self.expire_time}
+
     device_id: {self.device_id}
     signature: {self.signature}
     default_drive_id: {self.default_drive_id}
@@ -156,11 +149,7 @@ class AliPCS:
     @property
     def refresh_token(self) -> str:
         with _LOCK:
-            if (
-                not self._access_token
-                or (now_timestamp() - 1 * 60 * 60) >= self._expire_time
-                or not self._device_id
-            ):
+            if not self._access_token or (now_timestamp() - 1 * 60 * 60) >= self._expire_time or not self._device_id:
                 self.refresh()
             return self._refresh_token
 
@@ -237,6 +226,7 @@ class AliPCS:
 
         if not refresh and "Authorization" not in headers:
             headers["Authorization"] = f"{self.token_type} {self.access_token}"
+            headers["x-device-id"] = self.device_id
 
         if json is not None:
             headers["Content-Type"] = "application/json;charset=UTF-8"
@@ -244,16 +234,11 @@ class AliPCS:
         if isinstance(data, (MultipartEncoder, MultipartEncoderMonitor)):
             headers["Content-Type"] = data.content_type
 
+        headers["x-canary"] = "client=web,app=adrive,version=v4.1.0"
+
         try:
             resp = self._session.request(
-                method.value,
-                url,
-                params=params,
-                headers=headers,
-                data=data,
-                json=json,
-                files=files,
-                **kwargs,
+                method.value, url, params=params, headers=headers, data=data, json=json, files=files, **kwargs
             )
             return resp
         except Exception as err:
@@ -304,21 +289,21 @@ class AliPCS:
         sign = signature + "00"
 
         url = PcsNode.CreateSession.url()
-        data = dict(
-            deviceName="Chrome浏览器",
-            modelName="Windows网页版",
-            pubKey=public_key.to_string().hex(),
-        )
+        data = dict(deviceName="Chrome浏览器", modelName="Mac OS网页版", pubKey=public_key.to_string().hex())
 
         headers = dict(**PCS_HEADERS)
         headers.update({"x-device-id": device_id, "x-signature": sign})
 
-        resp = self._request(Method.Post, url, headers=headers, json=data)
-        info = resp.json()
+        @handle_error
+        def do(self):
+            resp = self._request(Method.Post, url, headers=headers, json=data)
+            return resp.json()
+
+        info = do(self)
         if info["result"] and info["success"]:
             self._signature = sign
 
-        return resp.json()
+        return info
 
     def meta(self, *file_ids: str, share_id: str = None):
         assert "root" not in file_ids, '"root" has NOT meta info'
@@ -337,9 +322,9 @@ class AliPCS:
             data = dict(
                 file_id=file_id,
                 fields="*",
-                # image_thumbnail_process="image/resize,w_400/format,jpeg",
-                # image_url_process="image/resize,w_375/format,jpeg",
-                # video_thumbnail_process="video/snapshot,t_1000,f_jpg,ar_auto,w_375",
+                image_thumbnail_process="image/resize,w_400/format,jpeg",
+                image_url_process="image/resize,w_375/format,jpeg",
+                video_thumbnail_process="video/snapshot,t_1000,f_jpg,ar_auto,w_375",
             )
 
             if share_id:
@@ -396,14 +381,14 @@ class AliPCS:
     def list(
         self,
         file_id: str,
-        share_id: str = None,
+        share_id: str = "",
         desc: bool = False,
         name: bool = False,
         time: bool = False,
         size: bool = False,
         all: bool = False,
-        limit: int = 100,
-        url_expire_sec: int = 7200,
+        limit: int = 200,
+        url_expire_sec: int = 14400,
         next_marker: str = "",
     ):
         """List files at the directory which has `file_id`
@@ -433,13 +418,16 @@ class AliPCS:
             order_direction="DESC" if desc else "ASC",
             parent_file_id=file_id,
             url_expire_sec=url_expire_sec,
-            marker=next_marker,
-            # image_thumbnail_process="image/resize,w_400/format,jpeg",
-            # image_url_process="image/resize,w_1920/format,jpeg",
-            # video_thumbnail_process="video/snapshot,t_0,f_jpg,ar_auto,w_300",
+            image_thumbnail_process="image/resize,w_256/format,jpeg",
+            image_url_process="image/resize,w_1920/format,jpeg/interlace,1",
+            video_thumbnail_process="video/snapshot,t_1000,f_jpg,ar_auto,w_256",
         )
 
+        if next_marker:
+            data["marker"] = next_marker
+
         headers = dict(PCS_HEADERS)
+        headers.update({"x-device-id": self.device_id, "x-signature": self.signature})
         if share_id:
             share_token = self.share_token(share_id)
             assert share_token, "Need share_token"
@@ -509,39 +497,21 @@ class AliPCS:
         resp = self._request(Method.Post, url, json=data)
         return resp.json()
 
-    def prepare_file(
-        self,
-        filename: str,
-        dir_id: str,
-        size: int,
-        pre_hash: str = "",
-        part_number: int = 1,
-    ):
-        return self.create_file(
-            filename, dir_id, size, pre_hash=pre_hash, part_number=part_number
-        )
+    def prepare_file(self, filename: str, dir_id: str, size: int, pre_hash: str = "", part_number: int = 1):
+        return self.create_file(filename, dir_id, size, pre_hash=pre_hash, part_number=part_number)
 
     @assert_ok
     @handle_error
-    def rapid_upload_file(
-        self, filename: str, dir_id: str, size: int, content_hash: str, proof_code: str
-    ):
+    def rapid_upload_file(self, filename: str, dir_id: str, size: int, content_hash: str, proof_code: str):
         """Rapid Upload File
 
         size (int): the length of total content.
         content_hash (str): the sha1 of total content.
         """
 
-        return self.create_file(
-            filename, dir_id, size, content_hash=content_hash, proof_code=proof_code
-        )
+        return self.create_file(filename, dir_id, size, content_hash=content_hash, proof_code=proof_code)
 
-    def upload_slice(
-        self,
-        io: IO,
-        url: str,
-        callback: Callable[[MultipartEncoderMonitor], None] = None,
-    ) -> None:
+    def upload_slice(self, io: IO, url: str, callback: Callable[[MultipartEncoderMonitor], None] = None) -> None:
         """Upload the content of io to remote url"""
 
         cio = ChunkIO(io, total_len(io))
@@ -560,11 +530,7 @@ class AliPCS:
     @handle_error
     def upload_complete(self, file_id: str, upload_id: str):
         url = PcsNode.UploadComplete.url()
-        data = dict(
-            drive_id=self.default_drive_id,
-            file_id=file_id,
-            upload_id=upload_id,
-        )
+        data = dict(drive_id=self.default_drive_id, file_id=file_id, upload_id=upload_id)
         resp = self._request(Method.Post, url, json=data)
         return resp.json()
 
@@ -599,9 +565,9 @@ class AliPCS:
             order_by=orderby + " " + ("DESC" if desc else "ASC"),
             query=f'name match "{keyword}"',
             marker=next_marker,
-            # image_thumbnail_process="image/resize,w_160/format,jpeg",
-            # image_url_process="image/resize,w_1920/format,jpeg",
-            # video_thumbnail_process="video/snapshot,t_0,f_jpg,ar_auto,w_300",
+            image_thumbnail_process="image/resize,w_160/format,jpeg",
+            image_url_process="image/resize,w_1920/format,jpeg",
+            video_thumbnail_process="video/snapshot,t_0,f_jpg,ar_auto,w_300",
         )
         resp = self._request(Method.Post, url, json=data)
         return resp.json()
@@ -623,10 +589,7 @@ class AliPCS:
     @assert_ok
     @handle_error
     def batch_operate(
-        self,
-        requests_: List[Dict[str, Any]],
-        resource: str = "file",
-        headers: Optional[Dict[str, str]] = None,
+        self, requests_: List[Dict[str, Any]], resource: str = "file", headers: Optional[Dict[str, str]] = None
     ):
         url = PcsNode.Batch.url()
         data = dict(resource=resource, requests=requests_)
@@ -672,10 +635,7 @@ class AliPCS:
 
         url = PcsNode.Update.url()
         data = dict(
-            check_name_mode="refuse",  # or "auto_rename"
-            drive_id=self.default_drive_id,
-            file_id=file_id,
-            name=name,
+            check_name_mode="refuse", drive_id=self.default_drive_id, file_id=file_id, name=name  # or "auto_rename"
         )
         resp = self._request(Method.Post, url, json=data)
         return resp.json()
@@ -710,10 +670,7 @@ class AliPCS:
                 url="/recyclebin/trash",
                 id=file_id,
                 headers={"Content-Type": "application/json"},
-                body=dict(
-                    drive_id=self.default_drive_id,
-                    file_id=file_id,
-                ),
+                body=dict(drive_id=self.default_drive_id, file_id=file_id),
             )
             requests_.append(req)
         return self.batch_operate(requests_, resource="file")
@@ -733,9 +690,7 @@ class AliPCS:
 
     @assert_ok
     @handle_error
-    def share(
-        self, *file_ids: str, password: str = "", period: int = 0, description: str = ""
-    ):
+    def share(self, *file_ids: str, password: str = "", period: int = 0, description: str = ""):
         """Share `remotepaths` to public
 
         period (int): The days for expiring. `0` means no expiring
@@ -743,7 +698,7 @@ class AliPCS:
 
         expiration = ""  # Living forever
         if period > 0:
-            expiration = timestamp_to_iso_8601(int(time.time()) + period * 24 * 60 * 60)
+            expiration = timestamp_to_iso_8601(now_timestamp() + period * 24 * 60 * 60)
 
         url = PcsNode.Share.url()
         data = dict(
@@ -780,9 +735,7 @@ class AliPCS:
                 url="/share_link/cancel",
                 id=share_id,
                 headers={"Content-Type": "application/json"},
-                body=dict(
-                    share_id=share_id,
-                ),
+                body=dict(share_id=share_id),
             )
             requests_.append(req)
 
@@ -805,9 +758,7 @@ class AliPCS:
         info = resp.json()
         if info.get("share_token"):
             # Store share password for refreshing share token
-            self.__class__.SHARE_AUTHS[share_id] = SharedAuth.from_(
-                share_id, share_password, info
-            )
+            self.__class__.SHARE_AUTHS[share_id] = SharedAuth.from_(share_id, share_password, info)
 
         return info
 
@@ -834,11 +785,7 @@ class AliPCS:
     list_shared_files = list
 
     def transfer_shared_files(
-        self,
-        shared_file_ids: List[str],
-        dest_id: str,
-        share_id: str,
-        auto_rename: bool = False,
+        self, shared_file_ids: List[str], dest_id: str, share_id: str, auto_rename: bool = False
     ):
         """Transfer shared files to destination directory"""
 
@@ -869,18 +816,9 @@ class AliPCS:
 
     @assert_ok
     @handle_error
-    def _get_shared_file_download_url(
-        self,
-        shared_file_id: str,
-        share_id: str,
-        expire_duration: int = 10 * 60,
-    ):
+    def _get_shared_file_download_url(self, shared_file_id: str, share_id: str, expire_duration: int = 10 * 60):
         url = PcsNode.SharedFileDownloadUrl.url()
-        data = dict(
-            expire_sec=expire_duration,
-            file_id=shared_file_id,
-            share_id=share_id,
-        )
+        data = dict(expire_sec=expire_duration, file_id=shared_file_id, share_id=share_id)
 
         share_token = self.share_token(share_id)
         assert share_token, "Need share_token"
@@ -891,17 +829,8 @@ class AliPCS:
         resp = self._request(Method.Post, url, headers=headers, json=data)
         return resp.json()
 
-    def shared_file_download_url(
-        self,
-        shared_file_id: str,
-        share_id: str,
-        expire_duration: int = 10 * 60,
-    ) -> str:
-        info = self._get_shared_file_download_url(
-            shared_file_id,
-            share_id,
-            expire_duration=expire_duration,
-        )
+    def shared_file_download_url(self, shared_file_id: str, share_id: str, expire_duration: int = 10 * 60) -> str:
+        info = self._get_shared_file_download_url(shared_file_id, share_id, expire_duration=expire_duration)
         url = info["url"]
 
         headers = dict(PCS_HEADERS)
@@ -912,16 +841,18 @@ class AliPCS:
     @assert_ok
     @handle_error
     def user_info(self):
-        url = PcsNode.PersonalInfo.url()
+        url = PcsNode.User.url()
         resp = self._request(Method.Post, url, json={})
         info1 = resp.json()
 
-        url = PcsNode.User.url()
-        resp = self._request(Method.Post, url, json={})
+        headers = dict(PCS_HEADERS)
+        headers.update({"x-device-id": self.device_id, "x-signature": self.signature})
+        url = PcsNode.PersonalInfo.url()
+        resp = self._request(Method.Post, url, headers=headers, json={})
         info2 = resp.json()
 
         url = PcsNode.UserVip.url()
-        resp = self._request(Method.Post, url, json={})
+        resp = self._request(Method.Post, url, headers=headers, json={})
         info3 = resp.json()
 
         return {**info1, **info2, "user_vip_info": info3}
@@ -972,11 +903,7 @@ class AliPCS:
         callback: Callable[..., None] = None,
         encrypt_password: bytes = b"",
     ) -> Optional[RangeRequestIO]:
-        url = self.shared_file_download_url(
-            shared_file_id,
-            share_id,
-            expire_duration=expire_duration,
-        )
+        url = self.shared_file_download_url(shared_file_id, share_id, expire_duration=expire_duration)
 
         headers = {
             "User-Agent": PCS_UA,
@@ -993,3 +920,481 @@ class AliPCS:
             callback=callback,
             encrypt_password=encrypt_password,
         )
+
+
+class OpenPcsNode(Enum):
+    f"""PCS Nodes which use {ALIYUNDRIVE_OPENAPI_DOMAIN}"""
+
+    UpdateRefreshToken = "oauth/access_token"
+    QrcodeLink = "oauth/authorize/qrcode"
+    QrcodeUrl = "o/oauth/authorize?sid={sid}"
+    QrcodeStatus = "oauth/qrcode/{sid}/status"
+
+    Token = "v2/account/token"
+    CreateSession = "users/v1/users/device/create_session"
+    DriveInfo = "adrive/v1.0/user/getDriveInfo"
+
+    Meta = "adrive/v1.0/openFile/get"
+    FileList = "adrive/v1.0/openFile/list"
+    Search = "adrive/v3/file/search"
+    DownloadUrl = "adrive/v1.0/openFile/getDownloadUrl"
+
+    CreateFile = "v2/file/create"
+    UploadComplete = "v2/file/complete"
+
+    Batch = "v3/batch"
+
+    CreateWithFolders = "adrive/v2/file/createWithFolders"
+    Move = "adrive/v3/file/move"
+    Update = "v3/file/update"
+    Trash = "v2/recyclebin/trash"
+
+    Available = "adrive/v2/share_link/check_avaliable"
+    Share = "adrive/v2/share_link/create"
+    ShareToken = "v2/share_link/get_share_token"
+    SharedInfo = "adrive/v3/share_link/get_share_by_anonymous"
+    SharedList = "adrive/v3/share_link/list"
+    SharedFileDownloadUrl = "v2/file/get_share_link_download_url"
+
+    SpaceInfo = "adrive/v1.0/user/getSpaceInfo"
+    # PersonalInfo = "v2/databox/get_personal_info"
+    PersonalInfo = "adrive/v1.0/user/get"
+    User = "v2/user/get"
+    UserVip = "adrive/v1.0/user/getVipInfo"
+
+    def url(self) -> str:
+        return f"{ALIYUNDRIVE_OPENAPI_DOMAIN}/{self.value}"
+
+
+class AliOpenPCS:
+    """`Aliyundrive Open PCS` provides pcs's apis which return raw json"""
+
+    SHARE_AUTHS: Dict[str, SharedAuth] = {}
+
+    def __init__(
+        self,
+        refresh_token: str,
+        access_token: str = "",
+        token_type: str = "Bearer",
+        expire_time: int = 0,
+        client_id: str = "",
+        client_secret: str = "",
+        client_server: str = "",
+        user_id: str = "",
+        user_name: str = "",
+        nick_name: str = "",
+        default_drive_id: str = "",
+        role: str = "",
+        status: str = "",
+    ):
+        assert (
+            client_id and client_secret
+        ) or client_server, "(client_id and client_secret) or client_server must be set"
+
+        self._session = requests.Session()
+
+        self._refresh_token = refresh_token
+        self._access_token = access_token
+        self._token_type = token_type
+        self._expire_time = expire_time
+
+        self._client_id = client_id
+        self._client_secret = client_secret
+        self._client_server = client_server
+
+        self._user_id = user_id
+        self._user_name = user_name
+        self._nick_name = nick_name
+        self._default_drive_id = default_drive_id
+        self._role = role
+        self._status = status
+        self._nonce = 0
+
+    def __str__(self) -> str:
+        return f"""AliPCS
+
+    user_id: {self.user_id}
+    user_name: {self.user_name}
+    nick_name: {self.nick_name}
+
+    refresh_token: {self.refresh_token}
+    access_token: {self.access_token}
+    token_type: {self.token_type}
+    expire_time: {self.expire_time}
+
+    client_id: {self._client_id}
+    client_secret: {self._client_secret}
+    client_server: {self._client_server}
+
+    default_drive_id: {self.default_drive_id}
+    role: {self.role}
+    status: {self.status}
+    nonce: {self._nonce}
+    """
+
+    @property
+    def refresh_token(self) -> str:
+        now = now_timestamp()
+        if self._expire_time - now < 200 or not self._access_token:
+            self._update_refresh_token()
+
+        if not self._default_drive_id:
+            self._get_drive_info()
+
+        return self._refresh_token
+
+    @property
+    def access_token(self) -> str:
+        self.refresh_token
+        return self._access_token
+
+    @property
+    def client_id(self) -> str:
+        return self._client_id
+
+    @property
+    def client_secret(self) -> str:
+        return self._client_secret
+
+    @property
+    def client_server(self) -> str:
+        return self._client_server
+
+    @property
+    def user_id(self) -> str:
+        self.refresh_token
+        return self._user_id
+
+    @property
+    def user_name(self) -> str:
+        self.refresh_token
+        return self._user_name
+
+    @property
+    def nick_name(self) -> str:
+        self.refresh_token
+        return self._nick_name
+
+    @property
+    def token_type(self) -> str:
+        self.refresh_token
+        return self._token_type
+
+    @property
+    def expire_time(self) -> int:
+        self.refresh_token
+        return self._expire_time
+
+    @property
+    def default_drive_id(self) -> str:
+        self.refresh_token
+        return self._default_drive_id
+
+    @property
+    def role(self) -> str:
+        self.refresh_token
+        return self._role
+
+    @property
+    def status(self) -> str:
+        self.refresh_token
+        return self._status
+
+    def _request(
+        self,
+        method: Method,
+        url: str,
+        params: Optional[Dict[str, str]] = None,
+        headers: Optional[Dict[str, str]] = None,
+        data: Union[str, bytes, Dict[str, str], Any] = None,
+        json: Any = None,
+        files: Optional[Dict[str, Any]] = None,
+        refresh: bool = False,
+        **kwargs,
+    ) -> requests.Response:
+        if not headers:
+            headers = dict(PCS_HEADERS)
+
+        if not refresh and "Authorization" not in headers:
+            headers["Authorization"] = f"{self._token_type} {self._access_token}"
+
+        if json is not None:
+            headers["Content-Type"] = "application/json;charset=UTF-8"
+
+        if isinstance(data, (MultipartEncoder, MultipartEncoderMonitor)):
+            headers["Content-Type"] = data.content_type
+
+        try:
+            resp = self._session.request(
+                method.value, url, params=params, headers=headers, data=data, json=json, files=files, **kwargs
+            )
+            return resp
+        except Exception as err:
+            raise AliPCSError("AliPCS._request", cause=err)
+
+    def _update_refresh_token(self):
+        """Update refresh token"""
+
+        data = dict(refresh_token=self._refresh_token, grant_type="refresh_token")
+        if self._client_id and self._client_secret:
+            url = OpenPcsNode.UpdateRefreshToken.url()
+            data["client_id"] = self._client_id
+            data["client_secret"] = self._client_secret
+        else:
+            url = urljoin(self._client_server, OpenPcsNode.UpdateRefreshToken.value)
+
+        resp = self._request(Method.Post, url, json=data, refresh=True)
+        info = resp.json()
+
+        if "code" in info:
+            err = parse_error(info["code"], info=info)
+            raise err
+
+        self._refresh_token = info["refresh_token"]
+        self._access_token = info["access_token"]
+        self._token_type = info["token_type"]
+        self._expire_time = now_timestamp() + info["expires_in"]
+
+        return info
+
+    def _get_drive_info(self):
+        """Get drive info"""
+
+        url = OpenPcsNode.DriveInfo.url()
+        data = dict()
+
+        resp = self._request(Method.Post, url, json=data)
+        info = resp.json()
+
+        if "code" in info:
+            err = parse_error(info["code"], info=info)
+            raise err
+
+        self._user_id = info["user_id"]
+        self._user_name = info["user_name"]
+        self._nick_name = info["nick_name"]
+        self._default_drive_id = info["default_drive_id"]
+        self._domain_id = info["domain_id"]
+        self._role = info["role"]
+        self._status = info["status"]
+
+        return info
+
+    def meta(self, *file_ids: str, share_id: str = None):
+        assert "root" not in file_ids, '"root" has NOT meta info'
+
+        responses = []
+        for file_id in file_ids:
+            data = dict(file_id=file_id, drive_id=self.default_drive_id)
+            url = PcsNode.Meta.url()
+            resp = self._request(Method.Post, url, json=data)
+            info = resp.json()
+            responses.append(dict(body=info))
+
+        return dict(responses=responses)
+
+    def exists(self, file_id: str) -> bool:
+        if file_id == "root":
+            return True
+
+        r = self.meta(file_id)
+        info = r["responses"][0]["body"]
+        if info.get("code") == "NotFound.File":
+            return False
+        else:
+            return True
+
+    def is_file(self, file_id: str) -> bool:
+        if file_id == "root":
+            return False
+
+        r = self.meta(file_id)
+        info = r["responses"][0]["body"]
+        if info.get("code") == "NotFound.File":
+            return False
+        if info["type"] == "file":
+            return True
+        else:
+            return False
+
+    def is_dir(self, file_id: str) -> bool:
+        if file_id == "root":
+            return True
+
+        r = self.meta(file_id)
+        info = r["responses"][0]["body"]
+        if info.get("code") == "NotFound.File":
+            return False
+        if info["type"] == "folder":
+            return True
+        else:
+            return False
+
+    @assert_ok
+    @handle_error
+    def list(
+        self,
+        file_id: str,
+        share_id: str = None,
+        desc: bool = False,
+        name: bool = False,
+        time: bool = False,
+        size: bool = False,
+        all: bool = False,
+        limit: int = 200,
+        url_expire_sec: int = 14200,
+        next_marker: str = "",
+    ):
+        """List files at the directory which has `file_id`
+
+        Args:
+            file_id (str):
+                The file_id of the directory
+        """
+
+        assert limit <= 200, "`limit` should be less than 200"
+
+        url = PcsNode.FileList.url()
+        orderby = "name"
+        if name:
+            orderby = "name"
+        elif time:
+            orderby = "updated_at"  # "created_at"  # 服务器最后修改时间
+        elif size:
+            orderby = "size"
+
+        data = dict(
+            all=all,
+            drive_id=self.default_drive_id,
+            fields="*",
+            limit=limit,
+            order_by=orderby,
+            order_direction="DESC" if desc else "ASC",
+            parent_file_id=file_id,
+            url_expire_sec=url_expire_sec,
+            marker=next_marker,
+        )
+
+        headers = dict(PCS_HEADERS)
+        resp = self._request(Method.Post, url, headers=headers, json=data)
+        return resp.json()
+
+    @staticmethod
+    def part_info_list(part_number: int) -> List[Dict[str, int]]:
+        return [dict(part_number=i) for i in range(1, part_number + 1)]
+
+    @timeout_cache(4 * 60 * 60)  # 4 hour timeout
+    @assert_ok
+    @handle_error
+    def download_link(self, file_id: str):
+        url = OpenPcsNode.DownloadUrl.url()
+        data = dict(drive_id=self.default_drive_id, file_id=file_id, expire_sec=14400)
+        resp = self._request(Method.Post, url, json=data)
+        return resp.json()
+
+    def file_stream(
+        self,
+        file_id: str,
+        max_chunk_size: int = DEFAULT_MAX_CHUNK_SIZE,
+        callback: Callable[..., None] = None,
+        encrypt_password: bytes = b"",
+    ) -> Optional[RangeRequestIO]:
+        info = self.download_link(file_id)
+        url = info["url"]
+
+        headers = {
+            "User-Agent": PCS_UA,
+            "Connection": "Keep-Alive",
+            "Referer": "https://www.aliyundrive.com/",
+            "Accept-Encoding": "gzip, deflate, br",
+            "Accept-Language": "en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7,zh-TW;q=0.6",
+        }
+        return RangeRequestIO(
+            Method.Get.value,
+            url,
+            headers=headers,
+            max_chunk_size=max_chunk_size,
+            callback=callback,
+            encrypt_password=encrypt_password,
+        )
+
+
+class AliOpenAuth:
+    def __init__(self, client_id: str = "", client_secret: str = "", client_server: str = ""):
+        assert (
+            client_id and client_secret
+        ) or client_server, "(client_id and client_secret) or client_server must be set"
+
+        self._session = requests.Session()
+
+        self._client_id = client_id
+        self._client_secret = client_secret
+        self._client_server = client_server
+
+    def _request(
+        self,
+        method: Method,
+        url: str,
+        params: Optional[Dict[str, str]] = None,
+        headers: Optional[Dict[str, str]] = None,
+        data: Union[str, bytes, Dict[str, str], Any] = None,
+        json: Any = None,
+        files: Optional[Dict[str, Any]] = None,
+        **kwargs,
+    ) -> requests.Response:
+        if not headers:
+            headers = dict(PCS_HEADERS)
+
+        try:
+            resp = self._session.request(
+                method.value, url, params=params, headers=headers, data=data, json=json, files=files, **kwargs
+            )
+            return resp
+        except Exception as err:
+            raise AliPCSError("AliOpenAuth._request", cause=err)
+
+    @staticmethod
+    def qrcode_url(sid: str) -> str:
+        return OpenPcsNode.QrcodeUrl.url().format(sid)
+
+    @handle_error
+    def get_qrcode_info(self):
+        data: Dict[str, Any] = dict(
+            scopes=[
+                "user:base",
+                "file:all:read",
+                "file:all:write",
+            ],
+            width=None,
+            height=None,
+        )
+
+        if self._client_server:
+            url = self._client_server.strip("/") + "/" + OpenPcsNode.QrcodeLink.value
+        else:
+            data["client_id"] = self._client_id
+            data["client_secret"] = self._client_secret
+            url = OpenPcsNode.QrcodeLink.url()
+
+        resp = self._request(Method.Post, url, json=data)
+        return resp.json()
+
+    @handle_error
+    def scan_status(self, sid: str):
+        url = OpenPcsNode.QrcodeStatus.url().format(sid=sid)
+        resp = self._request(Method.Get, url)
+        return resp.json()
+
+    @handle_error
+    def get_refresh_token(self, auth_code: str):
+        data = dict(grant_type="authorization_code", code=auth_code)
+
+        if self._client_server:
+            url = self._client_server.strip("/") + "/" + OpenPcsNode.UpdateRefreshToken.value
+        else:
+            data["client_id"] = self._client_id
+            data["client_secret"] = self._client_secret
+            url = OpenPcsNode.UpdateRefreshToken.url()
+
+        resp = self._request(Method.Post, url, json=data)
+        return resp.json()
