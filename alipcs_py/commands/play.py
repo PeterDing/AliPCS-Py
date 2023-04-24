@@ -45,9 +45,7 @@ class Player(Enum):
     ):
         global DEFAULT_PLAYER
         if not self.which():
-            print(
-                f"[yellow]No player {self.name}[/yellow], using default player: {DEFAULT_PLAYER.name}"
-            )
+            print(f"[yellow]No player {self.name}[/yellow], using default player: {DEFAULT_PLAYER.name}")
             self = DEFAULT_PLAYER
         if not self.which():
             raise CommandError(f"No player: {self.name}")
@@ -74,9 +72,7 @@ class Player(Enum):
 
         returncode = self.spawn(cmd)
         if returncode != 0:
-            print(
-                f"[italic]{self.value}[/italic] fails. return code: [red]{returncode}[/red]"
-            )
+            print(f"[italic]{self.value}[/italic] fails. return code: [red]{returncode}[/red]")
 
     def spawn(self, cmd: List[str], quiet: bool = False):
         child = subprocess.run(
@@ -134,8 +130,18 @@ def play_file(
 
     if share_id:
         use_local_server = False
-        download_url = api.shared_file_download_url(pcs_file.file_id, share_id)
-    elif use_local_server:
+        remote_temp_dir = "/__alipcs_py_temp__"
+        pcs_temp_dir = api.path(remote_temp_dir) or api.makedir_path(remote_temp_dir)
+        pcs_file = api.transfer_shared_files([pcs_file.file_id], pcs_temp_dir.file_id, share_id)[0]
+        # download_url = api.shared_file_download_url(pcs_file.file_id, share_id)
+
+        while True:
+            pcs_file = api.meta(pcs_file.file_id)[0]
+            if pcs_file.download_url:
+                break
+            time.sleep(2)
+
+    if use_local_server:
         download_url = f"{local_server}/__fileid__/?file_id={pcs_file.file_id}"
         print("url:", download_url)
     else:
@@ -152,6 +158,9 @@ def play_file(
             out_cmd=out_cmd,
             use_local_server=use_local_server,
         )
+
+    if share_id:
+        api.remove(pcs_file.file_id)
 
 
 def play_dir(
