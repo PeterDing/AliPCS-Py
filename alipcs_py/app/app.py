@@ -1,5 +1,6 @@
-from typing import Optional, List, Tuple, Union
+from typing import Optional, List, Dict, Tuple, Union, final
 import os
+
 
 # Enable UTF-8 Mode for Windows
 # https://www.python.org/dev/peps/pep-0540/
@@ -19,12 +20,13 @@ from alipcs_py import __version__
 from alipcs_py.alipcs import AliPCSApi, AliPCSError
 from alipcs_py.app import account as account_module
 from alipcs_py.app.account import Account, AccountManager
-from alipcs_py.commands.env import CONFIG_PATH, ACCOUNT_DATA_PATH, SHARED_STORE_PATH
 from alipcs_py.common.progress_bar import _progress, init_progress_bar
 from alipcs_py.common.path import join_path
 from alipcs_py.common.net import random_avail_port
 from alipcs_py.common.io import EncryptType
 from alipcs_py.common.event import keyboard_listener_start
+from alipcs_py.commands.login import openapi_qrcode_login
+from alipcs_py.commands.env import CONFIG_PATH, ACCOUNT_DATA_PATH
 from alipcs_py.commands.sifter import (
     IncludeSifter,
     ExcludeSifter,
@@ -56,7 +58,7 @@ from alipcs_py.commands.sync import sync as _sync
 from alipcs_py.commands import share as _share
 from alipcs_py.commands.server import start_server
 from alipcs_py.commands.log import get_logger
-from alipcs_py.storage.store import AliPCSApiWithSharedStore, SharedStore
+from alipcs_py.storage.store import AliPCSApiMixWithSharedStore, SharedStore
 from alipcs_py.config import AppConfig
 from alipcs_py.app.config import init_config
 
@@ -139,6 +141,31 @@ def handle_error(func):
     return wrap
 
 
+def save_modified_user_data(func):
+    """Save modified user data after some commands is finished"""
+
+    @wraps(func)
+    def wrap(ctx, *args, **kwargs):
+        pre_account_data_path_mtime = ctx.obj.pre_account_data_path_mtime
+
+        try:
+            result = func(ctx, *args, **kwargs)
+            return result
+        except:
+            raise
+        finally:
+            now_account_data_path_mtime = Path(ctx.obj.account_data_path).stat().st_mtime
+            # If the account_data had saved, we ignore to save it
+            if now_account_data_path_mtime == pre_account_data_path_mtime:
+                am = ctx.obj.account_manager
+                used_user_ids = ctx.obj.used_user_ids
+                for user_id in used_user_ids:
+                    am.update(user_id)
+                am.save()
+
+    return wrap
+
+
 def _app_config(ctx):
     """App Configuration"""
 
@@ -174,6 +201,7 @@ def multi_user_do(func):
     @wraps(func)
     def wrap(*args, **kwargs):
         ctx = args[0]
+        used_user_ids = ctx.obj.used_user_ids
         user_ids = _user_ids(ctx)
         if not user_ids:
             return func(*args, **kwargs)
@@ -185,14 +213,12 @@ def multi_user_do(func):
                 continue
 
             user_name = accout.user.user_name
-            print(
-                "[i yellow]@Do[/i yellow]: "
-                f"user_name: [b]{user_name}[/b], "
-                f"user_id: [b]{user_id}[/b]"
-            )
+            print("[i yellow]@Do[/i yellow]: " f"user_name: [b]{user_name}[/b], " f"user_id: [b]{user_id}[/b]")
             _change_account(ctx, user_id)
             func(*args, **kwargs)
             print()
+
+            used_user_ids.add(user_id)
 
     return wrap
 
@@ -209,13 +235,18 @@ def _recent_account(ctx) -> Optional[Account]:
         return None
 
 
-def _recent_api(ctx) -> Union[AliPCSApi, AliPCSApiWithSharedStore, None]:
+def _recent_api(ctx) -> Union[AliPCSApi, AliPCSApiMixWithSharedStore, None]:
     """Return recent user's `AliPCSApi`"""
 
+    am = ctx.obj.account_manager
     app_config = _app_config(ctx)
     account = _recent_account(ctx)
     if account:
-        api = account.pcsapi()
+        # Record used user_id for save_modified_user_data
+        used_user_ids = ctx.obj.used_user_ids
+        used_user_ids.add(account.user.user_id)
+
+        api = am.get_api()
         if app_config.share.store:
             api._sharedstore = SharedStore()  # type: ignore
         return api
@@ -307,15 +338,11 @@ _APP_DOC = f"""AliPCS App v{__version__}
     如何获取 `refresh_token` 见 https://github.com/PeterDing/AliPCS-Py#%E6%B7%BB%E5%8A%A0%E7%94%A8%E6%88%B7
     用 `AliPCS-Py {{command}} --help` 查看具体的用法。"""
 
-_ALIAS_DOC = "Command 别名:\n\n\b\n" + "\n".join(
-    [f"{alias: >3} : {cmd}" for alias, cmd in ALIAS.items()]
-)
+_ALIAS_DOC = "Command 别名:\n\n\b\n" + "\n".join([f"{alias: >3} : {cmd}" for alias, cmd in ALIAS.items()])
 
 
 @click.group(cls=AliasedGroup, help=_APP_DOC, epilog=_ALIAS_DOC)
-@click.option(
-    "--config", "-c", type=str, default=CONFIG_PATH, help="Configuration file"
-)
+@click.option("--config", "-c", type=str, default=CONFIG_PATH, help="Configuration file")
 @click.option(
     "--account-data-path",
     "--adp",
@@ -326,8 +353,14 @@ _ALIAS_DOC = "Command 别名:\n\n\b\n" + "\n".join(
 @click.option("--accounts", "-u", type=str, default=None, help="帐号名片段，用“,”分割")
 @click.pass_context
 def app(ctx, config, account_data_path, accounts):
+    ctx.obj.account_data_path = account_data_path
+    ad_path = Path(account_data_path)
+    ctx.obj.pre_account_data_path_mtime = 0
+    if ad_path.exists():
+        ctx.obj.pre_account_data_path_mtime = ad_path.stat().st_mtime
     ctx.obj.account_manager = AccountManager.load_data(account_data_path)
     ctx.obj.accounts = [] if accounts is None else accounts.split(",")
+    ctx.obj.used_user_ids = set()
 
     # Load app config
     app_config = AppConfig.load(config)
@@ -335,7 +368,7 @@ def app(ctx, config, account_data_path, accounts):
     init_config(app_config)
 
     if app_config.share.store:
-        account_module.AliPCSApi = AliPCSApiWithSharedStore
+        account_module.AliPCSApiMix = AliPCSApiMixWithSharedStore
 
 
 # Account
@@ -432,27 +465,47 @@ def userlist(ctx):
 
 
 @app.command()
+@click.option("--account-name", prompt="Account Name", hide_input=False, default="", help="账号名 [默认为 user id]")
+@click.option("--web-refresh-token", prompt="web refresh token", hide_input=True, help="用户 web_refresh_token")
 @click.option(
-    "--account_name",
-    prompt="Account Name",
-    hide_input=False,
-    default="",
-    help="账号名 [默认为 user id]",
-)
-@click.option(
-    "--refresh-token",
-    prompt="refresh token",
+    "--openapi-refresh-token",
+    prompt="openapi refresh token",
     hide_input=True,
-    help="用户 refresh_token",
+    default="",
+    help="用户 openapi_refresh_token",
 )
+@click.option("--client-id", prompt="open client id", default="", help="openapi client id")
+@click.option("--client-secret", prompt="open client secret", default="", help="openapi client secret")
+@click.option("--client-server", prompt="open client server", default="", help="openapi client server")
 @click.pass_context
 @handle_error
-def useradd(ctx, account_name, refresh_token):
+def useradd(ctx, account_name, web_refresh_token, openapi_refresh_token, client_id, client_secret, client_server):
     """添加一个用户并设置为当前用户"""
 
-    assert refresh_token, "No `refresh_token`"
+    assert web_refresh_token, "No `web_refresh_token`"
 
-    account = Account.from_refresh_token(refresh_token, account_name=account_name)
+    openapi_access_token = ""
+    openapi_token_type = "Bearer"
+    openapi_expire_time = 0
+    if (client_id and client_secret) or client_server:
+        if not openapi_refresh_token:
+            auth_info = openapi_qrcode_login(client_id, client_secret, client_server)
+            openapi_refresh_token = auth_info.refresh_token
+            openapi_access_token = auth_info.access_token
+            openapi_token_type = auth_info.token_type
+            openapi_expire_time = auth_info.expire_time
+
+    account = Account.from_refresh_token(
+        web_refresh_token,
+        openapi_refresh_token=openapi_refresh_token,
+        openapi_access_token=openapi_access_token,
+        openapi_token_type=openapi_token_type,
+        openapi_expire_time=openapi_expire_time,
+        client_id=client_id or "",
+        client_secret=client_secret or "",
+        client_server=client_server or "",
+        account_name=account_name,
+    )
     am = ctx.obj.account_manager
     am.add_account(account)
     am.su(account.user.user_id)
@@ -560,6 +613,7 @@ def pwd(ctx):
 @click.option("--only-dl-link", "--ODL", is_flag=True, help="只显示文件下载连接")
 @click.pass_context
 @handle_error
+@save_modified_user_data
 @multi_user_do
 def ls(
     ctx,
@@ -680,6 +734,7 @@ def ls(
 @click.option("--csv", is_flag=True, help="用 csv 格式显示")
 @click.pass_context
 @handle_error
+@save_modified_user_data
 @multi_user_do
 def search(
     ctx,
@@ -733,11 +788,10 @@ def search(
 @click.argument("remotepath", nargs=1, type=str)
 @click.option("--encoding", "-e", type=str, help="文件编码，默认自动解码")
 @click.option("--no-decrypt", "--ND", is_flag=True, help="不解密")
-@click.option(
-    "--encrypt-password", "--ep", type=str, default=None, help="加密密码，默认使用用户设置的"
-)
+@click.option("--encrypt-password", "--ep", type=str, default=None, help="加密密码，默认使用用户设置的")
 @click.pass_context
 @handle_error
+@save_modified_user_data
 @multi_user_do
 def cat(ctx, remotepath, encoding, no_decrypt, encrypt_password):
     """显示文件内容"""
@@ -762,6 +816,7 @@ def cat(ctx, remotepath, encoding, no_decrypt, encrypt_password):
 @click.option("--show", "-S", is_flag=True, help="显示目录")
 @click.pass_context
 @handle_error
+@save_modified_user_data
 @multi_user_do
 def mkdir(ctx, remotedirs, show):
     """创建目录"""
@@ -781,6 +836,7 @@ def mkdir(ctx, remotedirs, show):
 @click.option("--show", "-S", is_flag=True, help="显示结果")
 @click.pass_context
 @handle_error
+@save_modified_user_data
 @multi_user_do
 def move(ctx, remotepaths, show):
     """移动文件
@@ -808,6 +864,7 @@ def move(ctx, remotepaths, show):
 @click.option("--show", "-S", is_flag=True, help="显示结果")
 @click.pass_context
 @handle_error
+@save_modified_user_data
 @multi_user_do
 def rename(ctx, remotepath, new_name, show):
     """文件重命名
@@ -833,6 +890,7 @@ def rename(ctx, remotepath, new_name, show):
 @click.option("--show", "-S", is_flag=True, help="显示结果")
 @click.pass_context
 @handle_error
+@save_modified_user_data
 @multi_user_do
 def copy(ctx, remotepaths, show):
     """拷贝文件
@@ -859,6 +917,7 @@ def copy(ctx, remotepaths, show):
 @click.option("--file-id", "-i", multiple=True, type=str, help="文件 ID")
 @click.pass_context
 @handle_error
+@save_modified_user_data
 @multi_user_do
 def remove(ctx, remotepaths, file_id):
     """删除文件"""
@@ -884,9 +943,7 @@ def remove(ctx, remotepaths, file_id):
 @click.option("--share-url", "--su", nargs=1, type=str, help="下载这个分享url下的文件")
 @click.option("--password", "-p", type=str, help="分享链接密码，如果没有不用设置")
 @click.option("--recursive", "-R", is_flag=True, help="递归下载")
-@click.option(
-    "--from-index", "-f", type=int, default=0, help="从所有目录中的第几个文件开始下载，默认为0（第一个）"
-)
+@click.option("--from-index", "-f", type=int, default=0, help="从所有目录中的第几个文件开始下载，默认为0（第一个）")
 @click.option("--include", "-I", type=str, help="筛选包含这个字符串的文件")
 @click.option("--include-regex", "--IR", type=str, help="筛选包含这个正则表达式的文件")
 @click.option("--exclude", "-E", type=str, help="筛选 不 包含这个字符串的文件")
@@ -917,17 +974,14 @@ def remove(ctx, remotepaths, file_id):
     default=DEFAULT_CONCURRENCY,
     help=f"下载同步链接数，默认为{DEFAULT_CONCURRENCY}。建议小于 10",
 )
-@click.option(
-    "--chunk-size", "-k", type=str, default=DEFAULT_CHUNK_SIZE, help="同步链接分块大小"
-)
+@click.option("--chunk-size", "-k", type=str, default=DEFAULT_CHUNK_SIZE, help="同步链接分块大小")
 @click.option("--no-decrypt", "--ND", is_flag=True, help="不解密")
 @click.option("--quiet", "-q", is_flag=True, help="取消第三方下载应用输出")
 @click.option("--out-cmd", "--OC", is_flag=True, help="输出第三方下载应用命令")
-@click.option(
-    "--encrypt-password", "--ep", type=str, default=None, help="加密密码，默认使用用户设置的"
-)
+@click.option("--encrypt-password", "--ep", type=str, default=None, help="加密密码，默认使用用户设置的")
 @click.pass_context
 @handle_error
+@save_modified_user_data
 @multi_user_do
 def download(
     ctx,
@@ -993,9 +1047,7 @@ def download(
             recursive=recursive,
             from_index=from_index,
             downloader=getattr(Downloader, downloader),
-            downloadparams=DownloadParams(
-                concurrency=concurrency, chunk_size=chunk_size, quiet=quiet
-            ),
+            downloadparams=DownloadParams(concurrency=concurrency, chunk_size=chunk_size, quiet=quiet),
             out_cmd=out_cmd,
             encrypt_password=encrypt_password,
         )
@@ -1011,9 +1063,7 @@ def download(
             recursive=recursive,
             from_index=from_index,
             downloader=getattr(Downloader, downloader),
-            downloadparams=DownloadParams(
-                concurrency=concurrency, chunk_size=chunk_size, quiet=quiet
-            ),
+            downloadparams=DownloadParams(concurrency=concurrency, chunk_size=chunk_size, quiet=quiet),
             out_cmd=out_cmd,
             encrypt_password=encrypt_password,
         )
@@ -1026,9 +1076,7 @@ def download(
 @click.option("--share-url", "--su", nargs=1, type=str, help="播放这个分享url下的文件")
 @click.option("--password", "-p", type=str, help="分享链接密码，如果没有不用设置")
 @click.option("--recursive", "-R", is_flag=True, help="递归播放")
-@click.option(
-    "--from-index", "-f", type=int, default=0, help="从所有目录中的第几个文件开始播放，默认为0（第一个）"
-)
+@click.option("--from-index", "-f", type=int, default=0, help="从所有目录中的第几个文件开始播放，默认为0（第一个）")
 @click.option("--include", "-I", type=str, help="筛选包含这个字符串的文件")
 @click.option("--include-regex", "--IR", type=str, help="筛选包含这个正则表达式的文件")
 @click.option("--exclude", "-E", type=str, help="筛选 不 包含这个字符串的文件")
@@ -1050,11 +1098,10 @@ def download(
 @click.option("--ignore-ext", "--IE", is_flag=True, help="不用文件名后缀名来判断媒体文件")
 @click.option("--out-cmd", "--OC", is_flag=True, help="输出第三方播放器命令")
 @click.option("--use-local-server", "-s", is_flag=True, help="使用本地服务器播放。")
-@click.option(
-    "--encrypt-password", "--ep", type=str, default=None, help="加密密码，默认使用用户设置的"
-)
+@click.option("--encrypt-password", "--ep", type=str, default=None, help="加密密码，默认使用用户设置的")
 @click.pass_context
 @handle_error
+@save_modified_user_data
 @multi_user_do
 def play(
     ctx,
@@ -1097,9 +1144,7 @@ def play(
     local_server = ""
     if use_local_server:
         if share_id or file_id:
-            assert ValueError(
-                "Recently local server can't play others shared items and using `file_id`"
-            )
+            assert ValueError("Recently local server can't play others shared items and using `file_id`")
 
         encrypt_password = encrypt_password or _encrypt_password(ctx)
 
@@ -1177,15 +1222,9 @@ def play(
     "-t",
     type=click.Choice([t.name for t in UploadType]),
     default=UploadType.Many.name,
-    help=(
-        "上传方式，Many: 同时上传多个文件，"
-        "One: 一次只上传一个文件，但同时上传文件的多个分片 "
-        "(阿里网盘不支持单文件并发上传。`upload --upload-type One` 失效)"
-    ),
+    help=("上传方式，Many: 同时上传多个文件，" "One: 一次只上传一个文件，但同时上传文件的多个分片 " "(阿里网盘不支持单文件并发上传。`upload --upload-type One` 失效)"),
 )
-@click.option(
-    "--encrypt-password", "--ep", type=str, default=None, help="加密密码，默认使用用户设置的"
-)
+@click.option("--encrypt-password", "--ep", type=str, default=None, help="加密密码，默认使用用户设置的")
 @click.option(
     "--encrypt-type",
     "-e",
@@ -1193,13 +1232,12 @@ def play(
     default=EncryptType.No.name,
     help="文件加密方法，默认为 No 不加密",
 )
-@click.option(
-    "--max-workers", "-w", type=int, default=CPU_NUM, help="同时上传连接数量，默认为 CPU 核数"
-)
+@click.option("--max-workers", "-w", type=int, default=CPU_NUM, help="同时上传连接数量，默认为 CPU 核数")
 @click.option("--no-ignore-existing", "--NI", is_flag=True, help="上传已经存在的文件")
 @click.option("--no-show-progress", "--NP", is_flag=True, help="不显示上传进度")
 @click.pass_context
 @handle_error
+@save_modified_user_data
 @multi_user_do
 def upload(
     ctx,
@@ -1253,9 +1291,7 @@ def upload(
 @app.command()
 @click.argument("localdir", nargs=1, type=str)
 @click.argument("remotedir", nargs=1, type=str)
-@click.option(
-    "--encrypt-password", "--ep", type=str, default=None, help="加密密码，默认使用用户设置的"
-)
+@click.option("--encrypt-password", "--ep", type=str, default=None, help="加密密码，默认使用用户设置的")
 @click.option(
     "--encrypt-type",
     "-e",
@@ -1267,6 +1303,7 @@ def upload(
 @click.option("--no-show-progress", "--NP", is_flag=True, help="不显示上传进度")
 @click.pass_context
 @handle_error
+@save_modified_user_data
 @multi_user_do
 def sync(
     ctx,
@@ -1315,6 +1352,7 @@ def sync(
 @click.option("--period-time", "--pt", type=int, default=0, help="设置分享有效期，单位为天")
 @click.pass_context
 @handle_error
+@save_modified_user_data
 @multi_user_do
 def share(ctx, remotepaths, password, period_time):
     """分享文件
@@ -1338,6 +1376,7 @@ def share(ctx, remotepaths, password, period_time):
 @click.option("--show-all", "-A", is_flag=True, help="显示所有分享的链接，默认只显示有效的分享链接")
 @click.pass_context
 @handle_error
+@save_modified_user_data
 @multi_user_do
 def shared(ctx, show_all):
     """列出分享链接"""
@@ -1353,6 +1392,7 @@ def shared(ctx, show_all):
 @click.argument("share_ids", nargs=-1, type=str)
 @click.pass_context
 @handle_error
+@save_modified_user_data
 @multi_user_do
 def cancelshared(ctx, share_ids):
     """取消分享链接"""
@@ -1371,6 +1411,7 @@ def cancelshared(ctx, share_ids):
 @click.option("--password", "-p", type=str, help="分享链接密码，如果没有不用设置")
 @click.pass_context
 @handle_error
+@save_modified_user_data
 @multi_user_do
 def save(ctx, share_url_or_id, file_id, remotedir, password):
     """保存其他用户分享的链接"""
@@ -1404,6 +1445,7 @@ def save(ctx, share_url_or_id, file_id, remotedir, password):
 @click.option("--password", "-p", type=str, help="分享链接密码，如果没有不用设置")
 @click.pass_context
 @handle_error
+@save_modified_user_data
 def storesharedlinks(ctx, share_urls_or_ids, password):
     """保存分享连接至本地
 
@@ -1412,9 +1454,7 @@ def storesharedlinks(ctx, share_urls_or_ids, password):
 
     app_config = _app_config(ctx)
     if not app_config.share.store:
-        print(
-            "App configuration `[share] store is false`. So the command does not work"
-        )
+        print("App configuration `[share] store is false`. So the command does not work")
         return
 
     api = _recent_api(ctx)
@@ -1429,9 +1469,7 @@ def storesharedlinks(ctx, share_urls_or_ids, password):
         else:
             share_id = share_url_or_id
 
-        _share.get_share_token(
-            api, share_id=share_id, share_url=share_url, password=password
-        )
+        _share.get_share_token(api, share_id=share_id, share_url=share_url, password=password)
 
 
 @app.command()
@@ -1498,9 +1536,7 @@ def findsharedlinks(ctx, keywords):
     _find_shared_links(keywords)
 
 
-def _find_shared_files(
-    keywords: List[str], share_ids: List[str] = [], verbose: bool = False
-):
+def _find_shared_files(keywords: List[str], share_ids: List[str] = [], verbose: bool = False):
     shared_store = SharedStore()
     shared_files = shared_store.search_shared_files(*keywords, share_ids=share_ids)
     display_shared_files(*shared_files, verbose=verbose)
@@ -1539,11 +1575,10 @@ def findshared(ctx, keywords, verbose):
 
 @app.command()
 @click.argument("share_ids", nargs=-1, type=str)
-@click.option(
-    "--keyword", "-k", multiple=True, type=str, help="要删除文件名的关键字，如果为空则删除share_id下的所有文件"
-)
+@click.option("--keyword", "-k", multiple=True, type=str, help="要删除文件名的关键字，如果为空则删除share_id下的所有文件")
 @click.pass_context
 @handle_error
+@save_modified_user_data
 def deletestoredshared(ctx, share_ids, keyword):
     """删除本地保存的分享连接或文件
 
@@ -1593,12 +1628,10 @@ def cleanstore(ctx):
 
     app_config = _app_config(ctx)
     if not app_config.share.store:
-        print(
-            "App configuration `[share] store is false`. So the command does not work"
-        )
+        print("App configuration `[share] store is false`. So the command does not work")
         return
 
-    api: AliPCSApiWithSharedStore = _recent_api(ctx)
+    api: AliPCSApiMixWithSharedStore = _recent_api(ctx)
     if not api:
         return
 
@@ -1624,17 +1657,14 @@ def cleanstore(ctx):
 @click.option("--host", "-h", type=str, default="localhost", help="监听 host")
 @click.option("--port", "-p", type=int, default=8000, help="监听 port")
 @click.option("--workers", "-w", type=int, default=CPU_NUM, help="进程数")
-@click.option(
-    "--encrypt-password", "--ep", type=str, default=None, help="加密密码，默认使用用户设置的"
-)
+@click.option("--encrypt-password", "--ep", type=str, default=None, help="加密密码，默认使用用户设置的")
 @click.option("--username", type=str, default=None, help="HTTP Basic Auth 用户名")
 @click.option("--password", type=str, default=None, help="HTTP Basic Auth 密钥")
 @click.pass_context
 @handle_error
+@save_modified_user_data
 @multi_user_do
-def server(
-    ctx, root_dir, path, host, port, workers, encrypt_password, username, password
-):
+def server(ctx, root_dir, path, host, port, workers, encrypt_password, username, password):
     """开启 HTTP 服务"""
 
     api = _recent_api(ctx)
