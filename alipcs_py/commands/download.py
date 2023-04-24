@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from enum import Enum
 from pathlib import Path
 import os
+import time
 import shutil
 import subprocess
 from concurrent.futures import Future
@@ -110,9 +111,7 @@ class Downloader(Enum):
         logger.debug("`download`: cmd returncode: %s", returncode)
 
         if returncode != 0:
-            print(
-                f"[italic]{self.value}[/italic] fails. return code: [red]{returncode}[/red]"
-            )
+            print(f"[italic]{self.value}[/italic] fails. return code: [red]{returncode}[/red]")
         else:
             if encrypt_password:
                 dio = to_decryptio(open(localpath_tmp, "rb"), encrypt_password)
@@ -291,16 +290,25 @@ def download_file(
         return
 
     if downloader != Downloader.me:
-        print(
-            f"[italic blue]Download[/italic blue]: {pcs_file.path or pcs_file.name} to {localpath}"
-        )
+        print(f"[italic blue]Download[/italic blue]: {pcs_file.path or pcs_file.name} to {localpath}")
 
     download_url: Optional[str]
     if share_id:
-        download_url = api.shared_file_download_url(pcs_file.file_id, share_id)
-    else:
-        pcs_file.update_download_url(api)
-        download_url = pcs_file.download_url
+        remote_temp_dir = "/__alipcs_py_temp__"
+        pcs_temp_dir = api.path(remote_temp_dir) or api.makedir_path(remote_temp_dir)
+        pcs_file = api.transfer_shared_files([pcs_file.file_id], pcs_temp_dir.file_id, share_id)[0]
+
+        while True:
+            pcs_file = api.meta(pcs_file.file_id)[0]
+            if pcs_file.download_url:
+                break
+            time.sleep(2)
+
+    if not pcs_file or pcs_file.is_dir:
+        return
+
+    pcs_file.update_download_url(api)
+    download_url = pcs_file.download_url
 
     assert download_url
 
@@ -311,6 +319,9 @@ def download_file(
         out_cmd=out_cmd,
         encrypt_password=encrypt_password,
     )
+
+    if share_id:
+        api.remove(pcs_file.file_id)
 
 
 def download_dir(

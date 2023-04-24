@@ -35,9 +35,7 @@ _username: Optional[str] = None
 _password: Optional[str] = None
 
 # This template is from https://github.com/rclone/rclone/blob/master/cmd/serve/httplib/serve/data/templates/index.html
-_html_tempt: Template = Template(
-    (Path(__file__).parent / "index.html").open(encoding="utf-8").read()
-)
+_html_tempt: Template = Template((Path(__file__).parent / "index.html").open(encoding="utf-8").read())
 
 
 def fake_io(io: RangeRequestIO, start: int = 0, end: int = -1):
@@ -52,9 +50,7 @@ def get_file(file_id: str, remotepath: str, _range: Optional[str]):
     try:
         fs = _api.file_stream(file_id, encrypt_password=_encrypt_password)
     except Exception as err:
-        raise HTTPException(
-            status_code=500, detail=f"Error: {err}, remotepath: {remotepath}"
-        )
+        raise HTTPException(status_code=500, detail=f"Error: {err}, remotepath: {remotepath}")
 
     if not fs:
         raise HTTPException(status_code=404, detail=f"No download link: {remotepath}")
@@ -125,9 +121,7 @@ async def handle_request(
     is_dir = rpf.is_dir
     if is_dir:
         chunks = ["/"] + (remotepath.split("/") if remotepath != "" else [])
-        navigation = [
-            (i - 1, "../" * (len(chunks) - i), name) for i, name in enumerate(chunks, 1)
-        ]
+        navigation = [(i - 1, "../" * (len(chunks) - i), name) for i, name in enumerate(chunks, 1)]
         pcs_files = _api.list_path_iter(_rp, desc=desc, name=name, time=time, size=size)
         entries = []
         for f in pcs_files:
@@ -142,9 +136,7 @@ async def handle_request(
                     format_date(f.updated_at or 0),
                 )
             )
-        cn = _html_tempt.render(
-            root_dir=remotepath, navigation=navigation, entries=entries
-        )
+        cn = _html_tempt.render(root_dir=remotepath, navigation=navigation, entries=entries)
         return HTMLResponse(cn)
     else:
         return get_file(rpf.file_id, remotepath, _range)
@@ -167,16 +159,12 @@ def to_auth(credentials: HTTPBasicCredentials = Depends(_security)) -> str:
 
 def make_auth_http_server(path: str = ""):
     @app.get("%s/{remotepath:path}" % path)
-    async def auth_http_server(
-        username: str = Depends(to_auth), response: Response = Depends(handle_request)
-    ):
+    async def auth_http_server(username: str = Depends(to_auth), response: Response = Depends(handle_request)):
         if username:
             return response
 
     @app.get("/__fileid__/")
-    async def auth_file_id(
-        username: str = Depends(to_auth), response: Response = Depends(handle_request)
-    ):
+    async def auth_file_id(username: str = Depends(to_auth), response: Response = Depends(handle_request)):
         if username:
             return response
 

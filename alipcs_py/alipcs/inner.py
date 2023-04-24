@@ -4,7 +4,7 @@ from collections import namedtuple
 import time
 import re
 
-from alipcs_py.common.date import iso_8601_to_timestamp
+from alipcs_py.common.date import iso_8601_to_timestamp, now_timestamp
 
 if TYPE_CHECKING:
     from alipcs_py.alipcs.api import AliPCSApi
@@ -177,11 +177,16 @@ class PcsFile:
     def update_download_url(self, api: "AliPCSApi"):
         """Update the download url if it expires"""
 
-        if self.download_url_expires():
-            pcs_url = api.download_link(self.file_id)
-            if not pcs_url:
-                return
-            self.download_url = pcs_url.url
+        if self.is_file:
+            if self.download_url_expires():
+                pcs_url = api.download_link(self.file_id)
+                if pcs_url:
+                    self.download_url = pcs_url.url
+            else:
+                if getattr(api, "_aliopenpcsapi"):
+                    pcs_url = api.download_link(self.file_id)
+                    if pcs_url:
+                        self.download_url = pcs_url.url
 
 
 @dataclass
@@ -221,9 +226,7 @@ class PcsPreparedFile:
 
     @staticmethod
     def from_(info) -> "PcsPreparedFile":
-        part_info_list = [
-            PcsUploadUrl.from_(i) for i in info.get("part_info_list") or []
-        ]
+        part_info_list = [PcsUploadUrl.from_(i) for i in info.get("part_info_list") or []]
         return PcsPreparedFile(
             file_id=info.get("file_id"),
             parent_file_id=info.get("parent_file_id"),
@@ -247,11 +250,7 @@ class PcsPreparedFile:
 
     def upload_urls(self, internal: bool = False) -> List[str]:
         if internal:
-            return [
-                p.internal_upload_url
-                for p in self.part_info_list or []
-                if p.internal_upload_url
-            ]
+            return [p.internal_upload_url for p in self.part_info_list or [] if p.internal_upload_url]
         else:
             return [p.upload_url for p in self.part_info_list or [] if p.upload_url]
 
@@ -481,10 +480,19 @@ class PcsUser:
     device_id: Optional[str] = None
     domain_id: Optional[str] = None
 
-    refresh_token: Optional[str] = None
-    access_token: Optional[str] = None
-    token_type: Optional[str] = None
-    expire_time: Optional[int] = None
+    web_refresh_token: Optional[str] = None
+    web_access_token: Optional[str] = None
+    web_token_type: Optional[str] = None
+    web_expire_time: Optional[int] = None
+
+    openapi_refresh_token: Optional[str] = None
+    openapi_access_token: Optional[str] = None
+    openapi_token_type: Optional[str] = None
+    openapi_expire_time: Optional[int] = None
+
+    client_id: Optional[str] = None
+    client_secret: Optional[str] = None
+    client_server: Optional[str] = None
 
     user_name: Optional[str] = None
     nick_name: Optional[str] = None
@@ -527,9 +535,7 @@ class PcsUser:
             email=info.get("email"),
             avatar=info.get("avatar"),
             personal_space_info=PcsSpace.from_(info.get("personal_space_info") or {}),
-            personal_rights_info=PcsUserRights.from_(
-                info.get("personal_rights_info") or {}
-            ),
+            personal_rights_info=PcsUserRights.from_(info.get("personal_rights_info") or {}),
             user_vip_info=PcsUserVip.from_(info.get("user_vip_info") or {}),
             created_at=created_at,
             updated_at=updated_at,
@@ -579,4 +585,22 @@ class PcsDownloadUrl:
             method=info.get("method"),
             expiration=expiration,
             ratelimit=PcsRateLimit.from_(info.get("ratelimit") or {}),
+        )
+
+
+@dataclass
+class AuthInfo:
+    refresh_token: str
+    access_token: str
+    token_type: str
+    expire_time: int
+
+    @staticmethod
+    def from_(info) -> "AuthInfo":
+        expire_time = now_timestamp() + info.get("expires_in", 7200)
+        return AuthInfo(
+            refresh_token=info.get("refresh_token"),
+            access_token=info.get("access_token"),
+            token_type=info.get("token_type"),
+            expire_time=expire_time,
         )

@@ -23,8 +23,4 @@ def iso_8601_to_timestamp(date_string: str) -> int:
 
 
 def timestamp_to_iso_8601(timestamp: int) -> str:
-    return (
-        datetime.fromtimestamp(timestamp, timezone.utc)
-        .isoformat()
-        .replace("+00:00", ".000Z")
-    )
+    return datetime.fromtimestamp(timestamp, timezone.utc).isoformat().replace("+00:00", ".000Z")

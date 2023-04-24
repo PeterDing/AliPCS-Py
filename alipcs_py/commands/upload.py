@@ -190,9 +190,7 @@ def upload(
         )
 
 
-def _need_to_upload(
-    api: AliPCSApi, remotepath: str, check_name_mode: CheckNameMode
-) -> bool:
+def _need_to_upload(api: AliPCSApi, remotepath: str, check_name_mode: CheckNameMode) -> bool:
     """Check wether the `remotepath` needs to be uploaded
 
     If `check_name_mode` is `refuse` and the `remotepath` exists, then it does not need to be uploaded.
@@ -342,9 +340,7 @@ def upload_file_concurrently(
         remove_progress_task(task_id)
         return
 
-    info = _init_encrypt_io(
-        localpath, encrypt_password=encrypt_password, encrypt_type=encrypt_type
-    )
+    info = _init_encrypt_io(localpath, encrypt_password=encrypt_password, encrypt_type=encrypt_type)
     encrypt_io, encrypt_io_len, local_ctime, local_mtime = info
     slice_size = adjust_slice_size(slice_size, encrypt_io_len)
     part_number = math.ceil(encrypt_io_len / slice_size)
@@ -459,9 +455,7 @@ def upload_file_concurrently(
                 data = encrypt_io.read(size)
                 io = BytesIO(data or b"")
 
-                fut = executor.submit(
-                    sure_release, semaphore, _upload_slice, (io, upload_url)
-                )
+                fut = executor.submit(sure_release, semaphore, _upload_slice, (io, upload_url))
                 futs.append(fut)
 
                 i += size
@@ -587,9 +581,7 @@ def upload_file(
         remove_progress_task(task_id)
         return
 
-    info = _init_encrypt_io(
-        localpath, encrypt_password=encrypt_password, encrypt_type=encrypt_type
-    )
+    info = _init_encrypt_io(localpath, encrypt_password=encrypt_password, encrypt_type=encrypt_type)
     encrypt_io, encrypt_io_len, local_ctime, local_mtime = info
     slice_size = adjust_slice_size(slice_size, encrypt_io_len)
     part_number = math.ceil(encrypt_io_len / slice_size)
@@ -660,9 +652,7 @@ def upload_file(
         for upload_url in pcs_prepared_file.upload_urls():
             _wait_start()
 
-            logger.debug(
-                "`upload_file`: upload_slice: slice_completed: %s", slice_completed
-            )
+            logger.debug("`upload_file`: upload_slice: slice_completed: %s", slice_completed)
 
             size = min(slice_size, encrypt_io_len - slice_completed)
             if size == 0:
@@ -671,9 +661,7 @@ def upload_file(
             data = encrypt_io.read(size) or b""
             io = BytesIO(data)
 
-            logger.debug(
-                "`upload_file`: upload_slice: size should be %s == %s", size, len(data)
-            )
+            logger.debug("`upload_file`: upload_slice: size should be %s == %s", size, len(data))
 
             # Retry upload until success
             retry(

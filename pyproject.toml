@@ -1,7 +1,7 @@
 [tool.poetry]
 name = "AliPCS-Py"
 homepage = "https://github.com/PeterDing/AliPCS-Py"
-version = "0.5.3"
+version = "0.6.0-alpha"
 description = "Ali Pcs Api and App"
 authors = ["PeterDing <dfhayst@gmail.com>"]
 license = "MIT"
@@ -12,18 +12,26 @@ classifiers = [
     "Operating System :: Microsoft :: Windows",
     "Operating System :: MacOS",
     "Operating System :: POSIX :: Linux",
-    "Programming Language :: Python :: 3.7",
     "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
 ]
 build = "build.py"
 
+[tool.black]
+line-length = 119
+
+[tool.ruff]
+ignore = ["E501", "F401", "F841"]
+line-length = 119
+
 [tool.poetry.dependencies]
-python = "^3.7"
+python = "^3.8"
 requests = ">=2.28"
 requests-toolbelt = ">=0.10"
 peewee = ">=3.15"
 toml = ">=0.10"
+qrcode = ">=7.4"
 rich = ">=12.6"
 pillow = ">=9.3"
 click = ">=8.1"

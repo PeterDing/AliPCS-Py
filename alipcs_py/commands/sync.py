@@ -58,10 +58,7 @@ def sync(
     for lp, pf in check_list:
         sha1 = calc_sha1(Path(lp).open("rb"))
 
-        if (
-            pf.rapid_upload_info
-            and sha1.lower() != pf.rapid_upload_info.content_hash.lower()
-        ):
+        if pf.rapid_upload_info and sha1.lower() != pf.rapid_upload_info.content_hash.lower():
             fts.append(FromTo(lp, pf.path))
 
     need_deleted_file_ids = []
@@ -70,9 +67,7 @@ def sync(
             need_deleted_file_ids.append(all_pcs_files[rp].file_id)
 
     logger.debug(
-        "`sync`: all localpaths: %s, "
-        "localpaths needed to upload: %s, "
-        "remotepaths needed to delete: %s",
+        "`sync`: all localpaths: %s, localpaths needed to upload: %s, remotepaths needed to delete: %s",
         len(all_localpaths),
         len(fts),
         len(need_deleted_file_ids),

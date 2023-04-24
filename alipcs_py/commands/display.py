@@ -137,9 +137,7 @@ def display_files(
 
         if highlight and sifters:
             pats: List[Union[Pattern, str]] = list(
-                filter(
-                    None, [sifter.pattern() for sifter in sifters if sifter.include()]
-                )
+                filter(None, [sifter.pattern() for sifter in sifters if sifter.include()])
             )
             highlighter = Highlighter(pats, "yellow")
             _path = highlighter(path)
@@ -230,9 +228,7 @@ def display_shared_links(*shared_links: PcsSharedLink):
 
 def display_invalid_shared_link_infos(*shared_links: PcsSharedLinkInfo):
     for shared_link in shared_links:
-        print(
-            f"[i yellow]Remove[/i yellow]: {shared_link.share_url}\t{shared_link.share_name}"
-        )
+        print(f"[i yellow]Remove[/i yellow]: {shared_link.share_url}\t{shared_link.share_name}")
 
 
 def display_shared_paths(*shared_paths):
@@ -241,9 +237,7 @@ def display_shared_paths(*shared_paths):
     table.add_column("Size", justify="right")
     table.add_column("Path", justify="left", overflow="fold")
 
-    max_size_str_len = max(
-        [len(str(shared_path.size or 0)) for shared_path in shared_paths]
-    )
+    max_size_str_len = max([len(str(shared_path.size or 0)) for shared_path in shared_paths])
     for shared_path in shared_paths:
         row: List[Union[str, Text]] = []
 
@@ -281,9 +275,7 @@ def display_shared_link_infos(*shared_link_infos: PcsSharedLinkInfo):
             f"https://www.aliyundrive.com/s/{shared_link_info.share_id}",
             shared_link_info.share_pwd or "",
             shared_link_info.share_name or shared_link_info.display_name or "",
-            format_date(shared_link_info.expiration)
-            if shared_link_info.expiration
-            else "Never",
+            format_date(shared_link_info.expiration) if shared_link_info.expiration else "Never",
         )
 
     console = Console()
@@ -302,9 +294,7 @@ _SHARED_FILE_FORMAT = (
 )
 
 
-def display_shared_files(
-    *shared_file_and_links: Tuple[PcsFile, PcsSharedLinkInfo], verbose: bool = False
-):
+def display_shared_files(*shared_file_and_links: Tuple[PcsFile, PcsSharedLinkInfo], verbose: bool = False):
     if verbose:
         panels = []
         for shared_file, shared_link_info in shared_file_and_links:
@@ -316,9 +306,7 @@ def display_shared_files(
                 _SHARED_FILE_FORMAT.format(
                     share_url=share_url,
                     password=shared_link_info.share_pwd or "",
-                    share_name=shared_link_info.share_name
-                    or shared_link_info.display_name
-                    or "",
+                    share_name=shared_link_info.share_name or shared_link_info.display_name or "",
                     type=shared_file.type,
                     size=human_size(shared_file.size or 0),
                     file_id=shared_file.file_id,
@@ -365,16 +353,22 @@ def display_user_info(user_info: PcsUser):
     phone = user_info.phone
     personal_space_info = user_info.personal_space_info
 
-    refresh_token = user_info.refresh_token
-    access_token = user_info.access_token
-    expire_time = format_date(user_info.expire_time or 0)
+    web_refresh_token = user_info.web_refresh_token
+    web_access_token = user_info.web_access_token
+    web_token_type = user_info.web_token_type
+    web_expire_time = format_date(user_info.web_expire_time or 0)
+
+    openapi_refresh_token = user_info.openapi_refresh_token
+    openapi_access_token = user_info.openapi_access_token
+    openapi_token_type = user_info.openapi_token_type
+    openapi_expire_time = format_date(user_info.openapi_expire_time or 0)
+
+    client_id = user_info.client_id
+    client_secret = user_info.client_secret
+    client_server = user_info.client_server
 
     assert personal_space_info
-    quota_str = (
-        human_size(personal_space_info.used_size)
-        + "/"
-        + human_size(personal_space_info.total_size)
-    )
+    quota_str = human_size(personal_space_info.used_size) + "/" + human_size(personal_space_info.total_size)
 
     _tempt = (
         f"user id: {user_id}\n"
@@ -385,18 +379,26 @@ def display_user_info(user_info: PcsUser):
         f"domain id: {domain_id}\n"
         f"quota: {quota_str}\n"
         "\n"
-        f"refresh token: {refresh_token}\n"
-        f"access token: {access_token}\n"
-        f"expire time: {expire_time}\n"
+        f"web_refresh token: {web_refresh_token}\n"
+        f"web_access token: {web_access_token}\n"
+        f"web_token_type: {web_token_type}\n"
+        f"web_expire time: {web_expire_time}\n"
+        "\n"
+        f"openapi_refresh token: {openapi_refresh_token}\n"
+        f"openapi_access token: {openapi_access_token}\n"
+        f"openapi_token_type: {openapi_token_type}\n"
+        f"openapi_expire time: {openapi_expire_time}\n"
+        "\n"
+        f"client_id: {client_id}\n"
+        f"client_secret: {client_secret}\n"
+        f"client_server: {client_server}\n"
     )
 
     console = Console()
     console.print(_tempt, highlight=True)
 
 
-def display_user_infos(
-    *user_infos: Tuple[PcsUser, str, str], recent_user_id: Optional[int] = None
-):
+def display_user_infos(*user_infos: Tuple[PcsUser, str, str], recent_user_id: Optional[int] = None):
     """
     Args:
         user_infos (*Tuple[PcsUser, pwd: str])
@@ -423,15 +425,9 @@ def display_user_infos(
             vip = f"[b red]{user_info.user_vip_info.identity}[/b red]"
 
         assert personal_space_info
-        quota_str = (
-            human_size(personal_space_info.used_size)
-            + "/"
-            + human_size(personal_space_info.total_size)
-        )
+        quota_str = human_size(personal_space_info.used_size) + "/" + human_size(personal_space_info.total_size)
 
-        table.add_row(
-            str(idx), is_recent, account_name, user_name, nick_name, quota_str, vip, pwd
-        )
+        table.add_row(str(idx), is_recent, account_name, user_name, nick_name, quota_str, vip, pwd)
 
     console = Console()
     console.print(table)
