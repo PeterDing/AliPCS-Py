@@ -18,9 +18,7 @@ class PathTree:
         self._api = api
         self.root = _Node("root", PcsFile.root())
 
-    def search(
-        self, remotepath: str = "", topdown: Iterable[str] = [], root: _Node = None
-    ) -> Optional[PcsFile]:
+    def search(self, remotepath: str = "", topdown: Iterable[str] = [], root: _Node = None) -> Optional[PcsFile]:
         if not topdown:
             assert remotepath.startswith("/")
             topdown = split_posix_path(remotepath)

@@ -20,7 +20,6 @@ from alipcs_py.commands.download import (
     DEFAULT_DOWNLOADPARAMS,
 )
 from alipcs_py.commands.play import play, Player, DEFAULT_PLAYER
-from alipcs_py.storage.store import AliPCSApiWithSharedStore, SharedStore
 
 import requests  # type: ignore
 
@@ -66,9 +65,7 @@ def _extract_file_id(share_url: str) -> str:
     return m.group(1) if m else ""
 
 
-def save_shared_by_url(
-    api: AliPCSApi, remotedir: str, share_url: str, password: str = ""
-):
+def save_shared_by_url(api: AliPCSApi, remotedir: str, share_url: str, password: str = ""):
     share_url = _redirect(share_url)
     share_id = _extract_share_id(share_url)
     file_id = _extract_file_id(share_url)
@@ -115,9 +112,7 @@ def save_shared_by_file_ids(
             dest_pcs_files[rd] = api.makedir_path(rd)
         dest_pcs_file = dest_pcs_files[rd]
 
-        if not shared_file.is_root() and not remotepath_exists(
-            api, shared_file.name, rd
-        ):
+        if not shared_file.is_root() and not remotepath_exists(api, shared_file.name, rd):
             api.transfer_shared_files(
                 [shared_file.file_id],
                 dest_pcs_file.file_id,
@@ -131,11 +126,7 @@ def save_shared_by_file_ids(
                 print(f"[yellow]WARNING[/]: `{shared_file.path}` has be in `{rd}`")
                 continue
             else:  # shared_file.is_dir
-                sub_files = list(
-                    api.list_path_iter(
-                        shared_file.path, file_id=shared_file.file_id, share_id=share_id
-                    )
-                )
+                sub_files = list(api.list_path_iter(shared_file.path, file_id=shared_file.file_id, share_id=share_id))
 
                 rd = (PurePosixPath(rd) / shared_file.name).as_posix()
                 for sp in sub_files:
@@ -153,9 +144,7 @@ def save_shared(
 ):
     assert remotedir.startswith("/"), "`remotedir` must be an absolute path"
 
-    assert int(bool(share_id)) ^ int(
-        bool(share_url)
-    ), "`share_id` and `share_url` only can be given one"
+    assert int(bool(share_id)) ^ int(bool(share_url)), "`share_id` and `share_url` only can be given one"
 
     if share_url:
         save_shared_by_url(api, remotedir, share_url, password=password)
@@ -175,7 +164,7 @@ def list_shared_files(
     time: bool = False,
     size: bool = False,
     all: bool = True,
-    limit: int = 100,
+    limit: int = 200,
     recursive: bool = False,
     sifters: List[Sifter] = [],
     highlight: bool = False,
@@ -186,9 +175,7 @@ def list_shared_files(
     show_absolute_path: bool = False,
     csv: bool = False,
 ):
-    assert int(bool(share_id)) ^ int(
-        bool(share_url)
-    ), "`share_id` and `share_url` only can be given one"
+    assert int(bool(share_id)) ^ int(bool(share_url)), "`share_id` and `share_url` only can be given one"
 
     share_url = _redirect(share_url)
 
@@ -228,9 +215,7 @@ def list_shared_files(
     )
 
 
-def remotepath_exists(
-    api: AliPCSApi, name: str, rd: str, _cache: Dict[str, Set[str]] = {}
-) -> bool:
+def remotepath_exists(api: AliPCSApi, name: str, rd: str, _cache: Dict[str, Set[str]] = {}) -> bool:
     names = _cache.get(rd)
     if not names:
         names = set([sp.name for sp in api.list_path_iter(rd)])
@@ -254,9 +239,7 @@ def download_shared(
     out_cmd: bool = False,
     encrypt_password: bytes = b"",
 ):
-    assert int(bool(share_id)) ^ int(
-        bool(share_url)
-    ), "`share_id` and `share_url` only can be given one"
+    assert int(bool(share_id)) ^ int(bool(share_url)), "`share_id` and `share_url` only can be given one"
 
     share_url = _redirect(share_url)
 
@@ -307,9 +290,7 @@ def play_shared(
     out_cmd: bool = False,
     local_server: str = "",
 ):
-    assert int(bool(share_id)) ^ int(
-        bool(share_url)
-    ), "`share_id` and `share_url` only can be given one"
+    assert int(bool(share_id)) ^ int(bool(share_url)), "`share_id` and `share_url` only can be given one"
 
     share_url = _redirect(share_url)
 
@@ -344,12 +325,8 @@ def play_shared(
     )
 
 
-def get_share_token(
-    api: AliPCSApi, share_id: str, share_url: str = "", password: str = ""
-) -> str:
-    assert int(bool(share_id)) ^ int(
-        bool(share_url)
-    ), "`share_id` and `share_url` only can be given one"
+def get_share_token(api: AliPCSApi, share_id: str, share_url: str = "", password: str = "") -> str:
+    assert int(bool(share_id)) ^ int(bool(share_url)), "`share_id` and `share_url` only can be given one"
 
     share_url = _redirect(share_url)
 
