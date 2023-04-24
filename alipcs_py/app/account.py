@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from pathlib import Path
 import pickle
 
-from alipcs_py.alipcs import AliPCSApi, PcsUser
+from alipcs_py.alipcs import AliPCSApi, AliPCSApiMix, PcsUser
 from alipcs_py.common.path import PathType, join_path
 
 
@@ -22,28 +22,44 @@ class Account:
     on: bool = False
 
     def pcsapi(self) -> AliPCSApi:
-        refresh_token = self.user.refresh_token
-        access_token = self.user.access_token
-        expire_time = self.user.expire_time or 0
+        web_refresh_token = self.user.web_refresh_token
+        web_access_token = self.user.web_access_token
+        web_token_type = self.user.web_token_type or "Bearer"
+        web_expire_time = self.user.web_expire_time or 0
+
+        openapi_refresh_token = self.user.openapi_refresh_token
+        openapi_access_token = self.user.openapi_access_token
+        openapi_token_type = self.user.openapi_token_type or "Bearer"
+        openapi_expire_time = self.user.openapi_expire_time or 0
+
+        client_id = self.user.client_id
+        client_secret = self.user.client_secret
+        client_server = self.user.client_server
 
         user_id = self.user.user_id or ""
         user_name = self.user.user_name or ""
         nick_name = self.user.nick_name or ""
-        token_type = self.user.token_type or ""
         device_id = self.user.device_id or ""
         default_drive_id = self.user.default_drive_id or ""
         role = self.user.role or ""
         status = self.user.status or ""
 
-        assert refresh_token, f"{self}.user.refresh_token is None"
-        return AliPCSApi(
-            refresh_token,
-            access_token=access_token or "",
-            expire_time=expire_time,
+        assert web_refresh_token, f"{self}.user.web_refresh_token is None"
+        return AliPCSApiMix(
+            web_refresh_token,
+            web_access_token=web_access_token or "",
+            web_token_type=web_token_type,
+            web_expire_time=web_expire_time,
+            openapi_refresh_token=openapi_refresh_token or "",
+            openapi_access_token=openapi_access_token or "",
+            openapi_token_type=openapi_token_type,
+            openapi_expire_time=openapi_expire_time,
+            client_id=client_id or "",
+            client_secret=client_secret or "",
+            client_server=client_server or "",
             user_id=user_id,
             user_name=user_name,
             nick_name=nick_name,
-            token_type=token_type,
             device_id=device_id,
             default_drive_id=default_drive_id,
             role=role,
@@ -52,15 +68,34 @@ class Account:
 
     @staticmethod
     def from_refresh_token(
-        refresh_token: str,
-        access_token: str = "",
-        expire_time: int = 0,
+        web_refresh_token: str,
+        web_access_token: str = "",
+        web_token_type: str = "Bearer",
+        web_expire_time: int = 0,
+        openapi_refresh_token: str = "",
+        openapi_access_token: str = "",
+        openapi_token_type: str = "Bearer",
+        openapi_expire_time: int = 0,
+        client_id: str = "",
+        client_secret: str = "",
+        client_server: str = "",
         account_name: str = "",
     ) -> "Account":
-        api = AliPCSApi(
-            refresh_token, access_token=access_token, expire_time=expire_time
+        api = AliPCSApiMix(
+            web_refresh_token,
+            web_access_token=web_access_token or "",
+            web_token_type=web_token_type,
+            web_expire_time=web_expire_time,
+            openapi_refresh_token=openapi_refresh_token or "",
+            openapi_access_token=openapi_access_token or "",
+            openapi_token_type=openapi_token_type,
+            openapi_expire_time=openapi_expire_time,
+            client_id=client_id or "",
+            client_secret=client_secret or "",
+            client_server=client_server or "",
         )
         user = api.user_info()
+
         return Account(
             user,
             account_name or user.user_id,  # Default use `user_id`
@@ -77,12 +112,14 @@ class AccountManager:
         self._accounts: Dict[str, Account] = {}  # user_id (str) -> Account
         self._who: Optional[str] = None  # user_id (str)
         self._data_path = data_path
+        self._apis: Dict[str, AliPCSApi] = {}
 
     @staticmethod
     def load_data(data_path: PathType) -> "AccountManager":
         try:
             data_path = Path(data_path).expanduser()
             am = pickle.load(data_path.open("rb"))
+            am._data_path = data_path
             return am
         except Exception:
             return AccountManager(data_path=data_path)
@@ -92,6 +129,21 @@ class AccountManager:
         """All accounts"""
 
         return list(self._accounts.values())
+
+    def get_api(self, user_id: Optional[str] = None) -> Optional[AliPCSApi]:
+        user_id = user_id or self._who
+        if user_id:
+            account = self._accounts.get(user_id)
+            if not account:
+                return None
+
+            if user_id in self._apis:
+                api = self._apis[user_id]
+            else:
+                api = account.pcsapi()
+                self._apis[user_id] = api
+            return api
+        return None
 
     def set_account_name(self, account_name: str, user_id: Optional[str] = None):
         """Set account name"""
@@ -155,14 +207,13 @@ class AccountManager:
 
         user_id = user_id or self._who
         if user_id:
-            account = self._accounts.get(user_id)
-            if not account:
-                return None
+            api = self.get_api(user_id)
+            if api:
+                account = self._accounts.get(user_id)
+                assert account
 
-            api = account.pcsapi()
-            user = api.user_info()
-
-            account.user = user
+                user = api.user_info()
+                account.user = user
 
     def su(self, user_id: str):
         """Change recent user with `PcsUser.user_id`
@@ -210,4 +261,9 @@ class AccountManager:
         if not data_path.parent.exists():
             data_path.parent.mkdir(parents=True)
 
+        apis = self._apis
+        self._apis = {}  # Ignore to save apis
+
         pickle.dump(self, open(data_path, "wb"))
+
+        self._apis = apis
