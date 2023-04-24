@@ -206,7 +206,51 @@ AliPCS-Py --users 'o' search 'keyword' / -R
 
 ## 添加用户
 
-AliPCS-Py 目前支持用`refresh_token`登录。需要使用者在 https://www.aliyundrive.com/drive/ 登录后获取 `refresh_token` 值，并用命令 `useradd` 为 AliPCS-Py 添加一个用户。
+**从 2023-02-14 开始，阿里云盘官方限制了 web 端 api 的调用。从 web 端 api 获取到的下载连接是限速的。但如果调用[阿里云盘开放平台](https://survey.alibaba.com/apps/zhiliao/I9Dd1Nl89)的 api 获取到的下载连接是不限速的。**
+
+AliPCS-Py (>= v0.6.0) 支持调用阿里云盘开放平台 api。但是由于一直没有拿到内测，没法提供默认登录操作。需要用户自己找其他应用提供的登录方式登录。
+
+### 使用 web `refresh_token` 和 第三方认证地址 登录
+
+第三方认证地址提供阿里云盘开放平台的认证服务。由于一直没有拿到内存，本项目目前没法提供。需要使用者自行寻找。
+
+交互添加：
+
+```
+AliPCS-Py useradd
+```
+
+或者直接添加：
+
+```
+AliPCS-Py useradd --web-refresh-token "..." --client-server "..."
+# 其他选项留空
+```
+
+之后用阿里云盘 APP 扫码登录。
+
+### 使用 web `refresh_token` 和 阿里云盘开放平台认证凭证 登录
+
+如果使用者拿到了阿里云盘开放平台认证，会获得 `client-id` 和 `client-secret`。使用这两个值可以直接登录。
+
+交互添加：
+
+```
+AliPCS-Py useradd
+```
+
+或者直接添加：
+
+```
+AliPCS-Py useradd --web-refresh-token "..." --client-id "..." --client-secret "..."
+# 其他选项留空
+```
+
+之后用阿里云盘 APP 扫码登录。
+
+### 使用 web `refresh_token` 登录
+
+使用者需要在 https://www.aliyundrive.com/drive/ 登录后获取 `refresh_token` 值，并用命令 `useradd` 为 AliPCS-Py 添加一个用户。`useradd` 其他参数留空就好。
 
 使用者可以用下面的方式获取用户的 `refresh_token` 值。
 
@@ -227,10 +271,12 @@ AliPCS-Py useradd
 或者直接添加：
 
 ```
-AliPCS-Py useradd --refresh-token "..."
+AliPCS-Py useradd --web-refresh-token "..."
 ```
 
 AliPCS-Py 支持多用户，你只需一直用 `useradd` 来添加用户即可。
+
+**注意：如果只用 `--web-refresh-token` 登录，下载文件时，服务器端会限速。**
 
 ## 显示当前用户的信息
 
@@ -248,9 +294,15 @@ AliPCS-Py who user_id
 
 ### 选项
 
-| Option                      | Description  |
-| --------------------------- | ------------ |
-| -K, --show-encrypt-password | 显示加密密码 |
+| Option                       | Description                |
+| ---------------------------- | -------------------------- |
+| -K, --show-encrypt-password  | 显示加密密码               |
+| --account-name TEXT          | 账号名 [默认为 user id]    |
+| --web-refresh-token TEXT     | 用户 web_refresh_token     |
+| --openapi-refresh-token TEXT | 用户 openapi_refresh_token |
+| --client-id TEXT             | openapi client id          |
+| --client-secret TEXT         | openapi client secret      |
+| --client-server TEXT         | openapi client server      |
 
 ## 更新用户信息
 
