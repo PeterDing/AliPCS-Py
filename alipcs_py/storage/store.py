@@ -2,7 +2,7 @@ from typing import Optional, Tuple, List, Any
 
 from peewee import SQL
 
-from alipcs_py.alipcs.api import AliPCSApi
+from alipcs_py.alipcs.api import AliPCSApiMix
 from alipcs_py.alipcs.inner import PcsSharedLinkInfo, PcsFile
 from alipcs_py.storage.tables import PcsSharedLinkInfoTable, PcsFileTable
 
@@ -20,10 +20,7 @@ class SharedStore:
 
     def add_shared_link_info(self, pcs_shared_link_info: PcsSharedLinkInfo) -> Any:
         pcs_shared_link_info_ins, _ = PcsSharedLinkInfoTable.get_or_create(
-            **{
-                k: getattr(pcs_shared_link_info, k)
-                for k in pcs_shared_link_info.__dataclass_fields__
-            }
+            **{k: getattr(pcs_shared_link_info, k) for k in pcs_shared_link_info.__dataclass_fields__}
         )
         return pcs_shared_link_info_ins
 
@@ -41,9 +38,7 @@ class SharedStore:
         return pcs_file_ins
 
     def delete_shared_links(self, *share_ids: str) -> None:
-        PcsSharedLinkInfoTable.delete().where(
-            PcsSharedLinkInfoTable.share_id.in_(share_ids)
-        ).execute()
+        PcsSharedLinkInfoTable.delete().where(PcsSharedLinkInfoTable.share_id.in_(share_ids)).execute()
 
     def delete_shared_files(self, *file_ids: str) -> None:
         PcsFileTable.delete().where(PcsFileTable.file_id.in_(file_ids)).execute()
@@ -52,9 +47,7 @@ class SharedStore:
         self, *keywords: str, fields: List[str] = ["share_name", "display_name"]
     ) -> List[PcsSharedLinkInfo]:
         sql = " OR ".join([f"`{f}` like ?" for f in fields * len(keywords)])
-        query = PcsSharedLinkInfoTable.select().where(
-            SQL(sql, [f"%{keyword}%" for keyword in keywords] * len(fields))
-        )
+        query = PcsSharedLinkInfoTable.select().where(SQL(sql, [f"%{keyword}%" for keyword in keywords] * len(fields)))
         return [item.to_pcs() for item in query]
 
     def search_shared_files(
@@ -74,9 +67,7 @@ class SharedStore:
                 & SQL(sql, [f"%{keyword}%" for keyword in keywords] * len(fields))
             )
         else:
-            query = query.where(
-                SQL(sql, [f"%{keyword}%" for keyword in keywords] * len(fields))
-            )
+            query = query.where(SQL(sql, [f"%{keyword}%" for keyword in keywords] * len(fields)))
         return [(item.to_pcs(), item.shared_link_info_id.to_pcs()) for item in query]
 
     def list_shared_links(
@@ -127,10 +118,10 @@ class SharedStore:
         return [(item.to_pcs(), item.shared_link_info_id.to_pcs()) for item in query]
 
 
-class AliPCSApiWithSharedStore(AliPCSApi):
-    """AliPCS API with SharedStore
+class AliPCSApiMixWithSharedStore(AliPCSApiMix):
+    """AliPCS API Mix with SharedStore
 
-    Hooking the `AliPCSApi.list` to store the shared file infos
+    Hooking the `AliPCSApiMix.list` to store the shared file infos
     """
 
     def __init__(self, *args, **kwargs):
