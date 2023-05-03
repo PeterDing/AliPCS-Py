@@ -183,7 +183,7 @@ class PcsFile:
                 if pcs_url:
                     self.download_url = pcs_url.url
             else:
-                if getattr(api, "_aliopenpcsapi"):
+                if getattr(api, "_aliopenpcsapi", None):
                     pcs_url = api.download_link(self.file_id)
                     if pcs_url:
                         self.download_url = pcs_url.url
