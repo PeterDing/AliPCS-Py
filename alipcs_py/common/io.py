@@ -18,7 +18,6 @@ from random import Random
 import os
 import hashlib
 import logging
-import time
 
 from alipcs_py.common import constant
 from alipcs_py.common.number import u64_to_u8x8, u8x8_to_u64
@@ -52,6 +51,7 @@ logger = get_logger(__name__, level=cast(TLogLevel, _LOG_LEVEL))
 
 READ_SIZE = 65535
 DEFAULT_MAX_CHUNK_SIZE = 50 * constant.OneM
+DEFAULT_TIMEOUT = 5  # seconds
 
 BAIDUPCS_PY_CRYPTO_MAGIC_CODE = b"\x00@@#__BAIDUPCS_PY__CRYPTO__#@@\x00\xff"
 ENCRYPT_HEAD_LEN = len(BAIDUPCS_PY_CRYPTO_MAGIC_CODE) + 1 + 16 + 8
@@ -831,6 +831,8 @@ class AutoDecryptRequest:
         **kwargs,
     ):
         kwargs["stream"] = True
+        if "timeout" not in kwargs:
+            kwargs["timeout"] = DEFAULT_TIMEOUT
 
         self._method = method
         self._url = url
