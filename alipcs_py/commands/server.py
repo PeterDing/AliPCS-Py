@@ -1,8 +1,7 @@
-from typing import Optional, Dict, Union
+from typing import Optional, Dict, Annotated, Any
 from pathlib import Path
 import os
 import mimetypes
-import asyncio
 import secrets
 import copy
 from urllib.parse import quote
@@ -24,7 +23,6 @@ from rich import print
 
 mimetypes.init()
 
-app = FastAPI()
 
 _api: Optional[AliPCSApi] = None
 _root_dir: str = "/"
@@ -87,11 +85,11 @@ def get_file(file_id: str, remotepath: str, _range: Optional[str]):
 
 async def handle_request(
     request: Request,
-    remotepath: str,
+    remotepath: str = "",
     order: str = "asc",  # desc , asc
     sort: str = "name",  # name, time, size
     file_id: str = "",
-):
+) -> Response:
     desc = order == "desc"
     name = sort == "name"
     time = sort == "time"
@@ -157,25 +155,32 @@ def to_auth(credentials: HTTPBasicCredentials = Depends(_security)) -> str:
     return credentials.username
 
 
+app = FastAPI()
+
+
 def make_auth_http_server(path: str = ""):
     @app.get("%s/{remotepath:path}" % path)
-    async def auth_http_server(username: str = Depends(to_auth), response: Response = Depends(handle_request)):
+    async def auth_http_server(
+        username: Annotated[str, Depends(to_auth)], response: Annotated[Any, Depends(handle_request)]
+    ):
         if username:
             return response
 
     @app.get("/__fileid__/")
-    async def auth_file_id(username: str = Depends(to_auth), response: Response = Depends(handle_request)):
+    async def auth_file_id(
+        username: Annotated[str, Depends(to_auth)], response: Annotated[Any, Depends(handle_request)]
+    ):
         if username:
             return response
 
 
 def make_http_server(path: str = ""):
     @app.get("%s/{remotepath:path}" % path)
-    async def http_server(response: Response = Depends(handle_request)):
+    async def http_server(response: Annotated[Any, Depends(handle_request)]):
         return response
 
     @app.get("/__fileid__/")
-    async def file_id(response: Response = Depends(handle_request)):
+    async def file_id(response: Annotated[Any, Depends(handle_request)]):
         return response
 
 
