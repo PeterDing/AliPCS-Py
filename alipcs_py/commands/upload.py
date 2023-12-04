@@ -1,3 +1,4 @@
+from hashlib import sha1
 from typing import Optional, List, Tuple, IO
 
 import os
@@ -647,9 +648,19 @@ def upload_file(
                 check_name_mode=check_name_mode,
             )
 
+        assert len(pcs_prepared_file.upload_urls()) == part_number
+
         reset_encrypt_io(encrypt_io)
 
-        for upload_url in pcs_prepared_file.upload_urls():
+        hasher = sha1()
+
+        file_id = pcs_prepared_file.file_id
+        upload_id = pcs_prepared_file.upload_id
+        assert file_id and upload_id
+
+        upload_urls = pcs_prepared_file.upload_urls()
+        slice_idx = 0
+        while slice_idx < len(upload_urls):
             _wait_start()
 
             logger.debug("`upload_file`: upload_slice: slice_completed: %s", slice_completed)
@@ -658,32 +669,51 @@ def upload_file(
             if size == 0:
                 break
 
-            data = encrypt_io.read(size) or b""
+            data = encrypt_io.read(size)
+            hasher.update(data)
+
             io = BytesIO(data)
 
             logger.debug("`upload_file`: upload_slice: size should be %s == %s", size, len(data))
 
-            # Retry upload until success
-            retry(
-                -1,
-                except_callback=lambda err, fail_count: (
-                    io.seek(0, 0),
+            fail_count = 0
+            while True:  # Retry upload until success
+                try:
+                    assert (
+                        pcs_prepared_file.part_info_list
+                        and not pcs_prepared_file.part_info_list[slice_idx].is_expired()
+                    )
+
+                    upload_url = upload_urls[slice_idx]
+                    api.upload_slice(io, upload_url, callback=callback_for_slice)
+                    slice_idx += 1
+                    break
+                except Exception as err:
+                    fail_count += 1
+                    io.seek(0, 0)
                     logger.warning(
                         "`upload_file`: `upload_slice`: error: %s, fail_count: %s",
                         err,
                         fail_count,
                         exc_info=err,
-                    ),
-                    _wait_start(),
-                ),
-            )(api.upload_slice)(io, upload_url, callback=callback_for_slice)
+                    )
+                    _wait_start()
+
+                    # Update upload slice urls
+                    new_pcs_prepared_file = api.get_upload_url(upload_id, file_id, part_number=part_number)
+                    pcs_prepared_file.part_info_list = new_pcs_prepared_file.part_info_list
+                    upload_urls = new_pcs_prepared_file.upload_urls()
 
             slice_completed += size
 
-        file_id = pcs_prepared_file.file_id
-        upload_id = pcs_prepared_file.upload_id
-        assert file_id and upload_id
-        api.upload_complete(file_id, upload_id)
+        local_file_hash = hasher.hexdigest()
+        uploaded_pcs_file = api.upload_complete(file_id, upload_id)
+        assert uploaded_pcs_file.rapid_upload_info
+        remote_file_hash = uploaded_pcs_file.rapid_upload_info.content_hash
+        if remote_file_hash.lower() != local_file_hash.lower():
+            raise ValueError(
+                f"Hashs do not match between local file and remote file: local sha1 ({local_file_hash}) != remote sha1 ({remote_file_hash})"
+            )
 
         remove_progress_task(task_id)
 
