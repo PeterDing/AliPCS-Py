@@ -1,4 +1,12 @@
-from typing import Optional, Dict, Annotated, Any
+import sys
+
+if sys.version_info > (3, 8):
+    from typing import Annotated
+else:
+    from typing_extensions import Annotated
+
+from typing import Optional, Dict, Any
+
 from pathlib import Path
 import os
 import mimetypes
