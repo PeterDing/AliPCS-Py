@@ -1,7 +1,7 @@
 [tool.poetry]
 name = "AliPCS-Py"
 homepage = "https://github.com/PeterDing/AliPCS-Py"
-version = "0.6.1"
+version = "0.6.2"
 description = "Ali Pcs Api and App"
 authors = ["PeterDing <dfhayst@gmail.com>"]
 license = "MIT"
@@ -12,9 +12,12 @@ classifiers = [
     "Operating System :: Microsoft :: Windows",
     "Operating System :: MacOS",
     "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
 ]
 build = "build.py"
 
