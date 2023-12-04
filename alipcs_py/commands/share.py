@@ -49,7 +49,7 @@ def cancel_shared(api: AliPCSApi, *share_ids: str):
 
 
 def _redirect(url: str) -> str:
-    if "alywp.net" not in url:
+    if not url or "alywp.net" not in url:
         return url
     resp = requests.get(url, allow_redirects=False)
     return resp.headers.get("Location") or ""
