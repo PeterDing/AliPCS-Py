@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from collections import namedtuple
 import time
 import re
+import urllib.parse
 
 from alipcs_py.common.date import iso_8601_to_timestamp, now_timestamp
 
@@ -204,6 +205,20 @@ class PcsUploadUrl:
             content_type=info.get("content_type"),
             part_number=info.get("part_number"),
         )
+
+    def is_expired(self) -> bool:
+        if not self.upload_url:
+            return True
+
+        assert self.upload_url
+
+        query = urllib.parse.urlparse(self.upload_url).query
+        query_dict = urllib.parse.parse_qs(query)
+        if "x-oss-expires" not in query_dict:
+            return True
+
+        expired_time = int(query_dict["x-oss-expires"][0])
+        return time.time() + 1 * 60 > expired_time
 
 
 @dataclass
