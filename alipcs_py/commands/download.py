@@ -33,7 +33,7 @@ logger = get_logger(__name__)
 USER_AGENT = PCS_UA
 
 DEFAULT_CONCURRENCY = 5
-DEFAULT_CHUNK_SIZE = str(1 * constant.OneM)
+DEFAULT_CHUNK_SIZE = str(100 * constant.OneM)
 
 # This is the threshold of range request setted by Ali server
 MAX_CHUNK_SIZE = 50 * constant.OneM
