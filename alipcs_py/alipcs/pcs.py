@@ -55,6 +55,7 @@ class PcsNode(Enum):
     DownloadUrl = "v2/file/get_download_url"
 
     CreateFile = "v2/file/create"
+    UploadUrl = "v2/file/get_upload_url"
     UploadComplete = "v2/file/complete"
 
     Batch = "v3/batch"
@@ -500,6 +501,24 @@ class AliPCS:
     def prepare_file(self, filename: str, dir_id: str, size: int, pre_hash: str = "", part_number: int = 1):
         return self.create_file(filename, dir_id, size, pre_hash=pre_hash, part_number=part_number)
 
+    def get_upload_url(self, upload_id: str, file_id: str, part_number: int):
+        """Get upload slices' urls
+
+        It is useful to get new upload slice url when these urls gotten from
+        `AliPCS.prepare_file` or `AliPCS.create_file` are expired.
+        """
+
+        url = PcsNode.UploadUrl.url()
+        data = dict(
+            upload_id=upload_id,
+            file_id=file_id,
+            drive_id=self.default_drive_id,
+            part_info_list=self.part_info_list(part_number),
+        )
+
+        resp = self._request(Method.Post, url, json=data)
+        return resp.json()
+
     @assert_ok
     @handle_error
     def rapid_upload_file(self, filename: str, dir_id: str, size: int, content_hash: str, proof_code: str):
@@ -523,7 +542,7 @@ class AliPCS:
             url,
             headers=dict(PCS_HEADERS),
             data=monitor,
-            # timeout=(3, 9),  # (connect timeout, read timeout)
+            timeout=(3, 9),  # (connect timeout, read timeout)
         )
 
     @assert_ok

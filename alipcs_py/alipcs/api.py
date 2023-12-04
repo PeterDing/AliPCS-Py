@@ -377,6 +377,16 @@ class AliPCSApi:
             filename, dir_id, size, pre_hash=pre_hash, part_number=part_number, check_name_mode=check_name_mode
         )
 
+    def get_upload_url(self, upload_id: str, file_id: str, part_number: int = 1) -> PcsPreparedFile:
+        """Get upload slices' urls
+
+        It is useful to get new upload slice url when these urls gotten from
+        `AliPCS.prepare_file` or `AliPCS.create_file` are expired.
+        """
+
+        info = self._alipcs.get_upload_url(upload_id, file_id, part_number)
+        return PcsPreparedFile.from_(info)
+
     def rapid_upload_file(
         self,
         filename: str,
