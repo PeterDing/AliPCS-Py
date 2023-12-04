@@ -58,12 +58,7 @@ class Player(Enum):
                 use_local_server=use_local_server,
             )
         else:
-            cmd = self._mpv_cmd(
-                url,
-                quiet=quiet,
-                player_params=player_params,
-                use_local_server=use_local_server,
-            )
+            raise RuntimeError
 
         # Print out command
         if out_cmd:

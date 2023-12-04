@@ -96,10 +96,8 @@ class Downloader(Enum):
             cmd = self._aget_py_cmd(url, localpath_tmp, downloadparams)
         elif self == Downloader.aget_rs:
             cmd = self._aget_rs_cmd(url, localpath_tmp, downloadparams)
-        elif self == Downloader.aria2:
+        else:  # elif self == Downloader.aria2:
             cmd = self._aria2_cmd(url, localpath_tmp, downloadparams)
-        else:
-            cmd = self._aget_py_cmd(url, localpath_tmp, downloadparams)
 
         # Print out command
         if out_cmd:
