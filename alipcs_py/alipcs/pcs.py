@@ -654,7 +654,10 @@ class AliPCS:
 
         url = PcsNode.Update.url()
         data = dict(
-            check_name_mode="refuse", drive_id=self.default_drive_id, file_id=file_id, name=name  # or "auto_rename"
+            check_name_mode="refuse",
+            drive_id=self.default_drive_id,
+            file_id=file_id,
+            name=name,  # or "auto_rename"
         )
         resp = self._request(Method.Post, url, json=data)
         return resp.json()
@@ -1193,9 +1196,9 @@ class AliOpenPCS:
         self._user_name = info["user_name"]
         self._nick_name = info["nick_name"]
         self._default_drive_id = info["default_drive_id"]
-        self._domain_id = info["domain_id"]
-        self._role = info["role"]
-        self._status = info["status"]
+        self._domain_id = info.get("domain_id")
+        self._role = info.get("role")
+        self._status = info.get("status")
 
         return info
 
