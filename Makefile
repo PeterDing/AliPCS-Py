@@ -1,17 +1,12 @@
 typecheck:
-	mypy -p alipcs_py \
-		--ignore-missing-imports \
-		--warn-unreachable \
-		--implicit-optional \
-		--allow-redefinition \
-		--disable-error-code abstract
+	ruff check alipcs_py
 
 
 format-check:
-	black --check .
+	ruff format --check .
 
 format:
-	black .
+	ruff format .
 
 build-pyx:
 	python build.py build_ext --inplace

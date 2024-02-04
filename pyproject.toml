@@ -19,13 +19,12 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
 ]
-build = "build.py"
 
 [tool.black]
 line-length = 119
 
 [tool.ruff]
-ignore = ["E501", "F401", "F841"]
+ignore = ["E501", "E402", "F401", "F403", "F841"]
 line-length = 119
 
 [tool.poetry.dependencies]
@@ -51,10 +50,13 @@ passlib = ">=1.7"
 
 [tool.poetry.group.dev.dependencies]
 pytest = ">=7.4"
-mypy = ">=1.7"
-black = ">=23.11"
+ruff = ">=0.2"
 setuptools = ">=69.0"
 cython = ">=3.0"
+
+[tool.poetry.build]
+script = "build.py"
+generate-setup-file = true
 
 [tool.poetry.scripts]
 AliPCS-Py = 'alipcs_py.app:main'
@@ -63,4 +65,4 @@ AliPCS-Py = 'alipcs_py.app:main'
 reportGeneralTypeIssues = true
 
 [build-system]
-requires = ["cython", "wheel", "setuptools"]
+requires = ["poetry-core", "cython", "wheel", "setuptools"]
