@@ -1222,7 +1222,11 @@ def play(
     "-t",
     type=click.Choice([t.name for t in UploadType]),
     default=UploadType.Many.name,
-    help=("上传方式，Many: 同时上传多个文件，" "One: 一次只上传一个文件，但同时上传文件的多个分片 " "(阿里网盘不支持单文件并发上传。`upload --upload-type One` 失效)"),
+    help=(
+        "上传方式，Many: 同时上传多个文件，"
+        "One: 一次只上传一个文件，但同时上传文件的多个分片 "
+        "(阿里网盘不支持单文件并发上传。`upload --upload-type One` 失效)"
+    ),
 )
 @click.option("--encrypt-password", "--ep", type=str, default=None, help="加密密码，默认使用用户设置的")
 @click.option(
@@ -1575,7 +1579,9 @@ def findshared(ctx, keywords, verbose):
 
 @app.command()
 @click.argument("share_ids", nargs=-1, type=str)
-@click.option("--keyword", "-k", multiple=True, type=str, help="要删除文件名的关键字，如果为空则删除share_id下的所有文件")
+@click.option(
+    "--keyword", "-k", multiple=True, type=str, help="要删除文件名的关键字，如果为空则删除share_id下的所有文件"
+)
 @click.pass_context
 @handle_error
 @save_modified_user_data

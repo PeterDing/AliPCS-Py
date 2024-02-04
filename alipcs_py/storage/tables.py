@@ -30,7 +30,7 @@ class Deserializer:
             if col in pcs_fields:
                 val = getattr(self, col)
                 if pcs_fields[col].type == typing.Optional[bool] or pcs_fields[col].type == bool:
-                    if val == None:
+                    if val is None:
                         data[col] = None
                     else:
                         data[col] = bool(val)
