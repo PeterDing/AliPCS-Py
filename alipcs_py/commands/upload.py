@@ -573,7 +573,9 @@ def upload_file(
     localpath, remotepath = from_to
 
     remotedir = posix_path_dirname(remotepath)
-    dest_dir = api.makedir_path(remotedir)
+    dest_dir = api.path(remotedir)
+    if dest_dir is None:
+        dest_dir = api.makedir_path(remotedir)
     dest_file_id = dest_dir.file_id
 
     filename = posix_path_basename(remotepath)
