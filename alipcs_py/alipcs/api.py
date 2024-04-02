@@ -633,6 +633,21 @@ class AliPCSApi:
         info = self._alipcs.download_link(file_id)
         return PcsDownloadUrl.from_(info)
 
+    def update_download_url(self, pcs_file: PcsFile) -> PcsFile:
+        """Update the download url of the `pcs_file` if it is expired
+
+        Return a new `PcsFile` with the updated download url.
+        """
+
+        assert pcs_file.is_file, f"{pcs_file} is not a file"
+
+        pcs_file = deepcopy(pcs_file)
+        if pcs_file.download_url_expires():
+            pcs_url = self.download_link(pcs_file.file_id)
+            if pcs_url:
+                pcs_file.download_url = pcs_url.url
+        return pcs_file
+
     def file_stream(
         self,
         file_id: str,
@@ -982,6 +997,21 @@ class AliOpenPCSApi:
         info = self._aliopenpcs.download_link(file_id)
         return PcsDownloadUrl.from_(info)
 
+    def update_download_url(self, pcs_file: PcsFile) -> PcsFile:
+        """Update the download url of the `pcs_file` if it is expired
+
+        Return a new `PcsFile` with the updated download url.
+        """
+
+        assert pcs_file.is_file, f"{pcs_file} is not a file"
+
+        pcs_file = deepcopy(pcs_file)
+        if pcs_file.download_url_expires():
+            pcs_url = self.download_link(pcs_file.file_id)
+            if pcs_url:
+                pcs_file.download_url = pcs_url.url
+        return pcs_file
+
     def file_stream(
         self,
         file_id: str,
@@ -1053,10 +1083,23 @@ class AliPCSApiMix(AliPCSApi):
     def download_link(self, file_id: str) -> Optional[PcsDownloadUrl]:
         """Get the download link of the `file_id`"""
 
-        if self._aliopenpcsapi:
+        if self._aliopenpcsapi is not None:
             return self._aliopenpcsapi.download_link(file_id)
         else:
             return super().download_link(file_id)
+
+    def update_download_url(self, pcs_file: PcsFile) -> PcsFile:
+        """Update the download url of the `pcs_file` if it is expired
+
+        Return a new `PcsFile` with the updated download url.
+        """
+
+        assert pcs_file.is_file, f"{pcs_file} is not a file"
+
+        if self._aliopenpcsapi is not None:
+            return self._aliopenpcsapi.update_download_url(pcs_file)
+        else:
+            return super().update_download_url(pcs_file)
 
     def file_stream(
         self,
@@ -1067,7 +1110,7 @@ class AliPCSApiMix(AliPCSApi):
     ) -> Optional[RangeRequestIO]:
         """File stream as a normal io"""
 
-        if self._aliopenpcsapi:
+        if self._aliopenpcsapi is not None:
             return self._aliopenpcsapi.file_stream(
                 file_id, max_chunk_size=max_chunk_size, callback=callback, encrypt_password=encrypt_password
             )
