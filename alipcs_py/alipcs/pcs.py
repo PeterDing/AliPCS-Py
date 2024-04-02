@@ -25,8 +25,9 @@ ALIYUNDRIVE_COM = "https://www.aliyundrive.com"
 ALIYUNDRIVE_COM_API = "https://api.aliyundrive.com"
 ALIYUNDRIVE_OPENAPI_DOMAIN = "https://openapi.aliyundrive.com"
 
+# TODO: Update UA
 PCS_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36"
-PCS_HEADERS = {"Origin": ALIYUNDRIVE_COM[:-1], "Referer": ALIYUNDRIVE_COM + "/", "User-Agent": PCS_UA}
+PCS_HEADERS = {"Origin": ALIYUNDRIVE_COM, "Referer": ALIYUNDRIVE_COM + "/", "User-Agent": PCS_UA}
 
 CheckNameMode = Literal[
     "overwrite",  # 直接覆盖，以后多版本有用
@@ -769,14 +770,15 @@ class AliPCS:
         """Get share token"""
 
         shared_auth = self.__class__.SHARE_AUTHS.get(share_id)
-        if shared_auth and not shared_auth.is_expired():
+        if shared_auth is not None:
             share_password = share_password or shared_auth.share_password
-            return shared_auth.info
+
+            if not shared_auth.is_expired():
+                return shared_auth.info
 
         url = PcsNode.ShareToken.url()
         data = dict(share_id=share_id, share_pwd=share_password)
         resp = self._request(Method.Post, url, json=data)
-
         info = resp.json()
         if info.get("share_token"):
             # Store share password for refreshing share token
@@ -883,6 +885,10 @@ class AliPCS:
     @assert_ok
     @handle_error
     def download_link(self, file_id: str):
+        info = self.meta(file_id)["responses"][0]["body"]
+        if info.get("url") or info.get("download_url"):
+            return info
+
         url = PcsNode.DownloadUrl.url()
         data = dict(drive_id=self.default_drive_id, file_id=file_id)
         headers = dict(PCS_HEADERS)
@@ -898,7 +904,7 @@ class AliPCS:
         encrypt_password: bytes = b"",
     ) -> Optional[RangeRequestIO]:
         info = self.download_link(file_id)
-        url = info["url"]
+        url = info.get("url") or info.get("download_url")
 
         headers = {
             "User-Agent": PCS_UA,
@@ -1207,8 +1213,8 @@ class AliOpenPCS:
 
         responses = []
         for file_id in file_ids:
-            data = dict(file_id=file_id, drive_id=self.default_drive_id)
-            url = PcsNode.Meta.url()
+            data = dict(file_id=file_id, fields="*", drive_id=self.default_drive_id)
+            url = OpenPcsNode.Meta.url()
             resp = self._request(Method.Post, url, json=data)
             info = resp.json()
             responses.append(dict(body=info))
@@ -1276,7 +1282,7 @@ class AliOpenPCS:
 
         assert limit <= 200, "`limit` should be less than 200"
 
-        url = PcsNode.FileList.url()
+        url = OpenPcsNode.FileList.url()
         orderby = "name"
         if name:
             orderby = "name"
