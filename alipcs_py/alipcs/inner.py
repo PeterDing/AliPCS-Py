@@ -4,6 +4,7 @@ from collections import namedtuple
 import time
 import re
 import urllib.parse
+import warnings
 
 from alipcs_py.common.date import iso_8601_to_timestamp, now_timestamp
 
@@ -177,6 +178,11 @@ class PcsFile:
 
     def update_download_url(self, api: "AliPCSApi"):
         """Update the download url if it expires"""
+
+        warnings.warn(
+            "This method is deprecated and will be removed in a future version, use `update_download_url` in `AliPCSApi` instead",
+            DeprecationWarning,
+        )
 
         if self.is_file:
             if self.download_url_expires():
@@ -394,7 +400,7 @@ class SharedAuth:
     share_id: str
     share_password: str
     share_token: str
-    expire_time: float
+    expire_time: int
     expires_in: int
     info: Any
 
@@ -578,6 +584,7 @@ class PcsRateLimit:
 @dataclass
 class PcsDownloadUrl:
     url: Optional[str] = None
+    download_url: Optional[str] = None  # url and download_url seem the same, the download rate is same
     internal_url: Optional[str] = None
     cdn_url: Optional[str] = None
     size: Optional[int] = None
@@ -594,6 +601,7 @@ class PcsDownloadUrl:
 
         return PcsDownloadUrl(
             url=info.get("url"),
+            download_url=info.get("download_url"),
             internal_url=info.get("internal_url"),
             cdn_url=info.get("cdn_url"),
             size=info.get("size"),

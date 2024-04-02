@@ -24,7 +24,7 @@ classifiers = [
 line-length = 119
 
 [tool.ruff]
-ignore = ["E501", "E402", "F401", "F403", "F841"]
+lint.ignore = ["E501", "E402", "F401", "F403", "F841"]
 line-length = 119
 
 [tool.poetry.dependencies]
@@ -33,6 +33,7 @@ requests = ">=2.31"
 requests-toolbelt = ">=1.0"
 peewee = ">=3.17"
 toml = ">=0.10"
+python-dateutil = ">=2.8"
 qrcode = ">=7.4"
 rich = ">=13.7"
 pillow = ">=10.1"
@@ -50,7 +51,7 @@ passlib = ">=1.7"
 
 [tool.poetry.group.dev.dependencies]
 pytest = ">=7.4"
-ruff = ">=0.2"
+ruff = ">=0.3"
 setuptools = ">=69.0"
 cython = ">=3.0"
 

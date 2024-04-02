@@ -58,7 +58,7 @@ def handle_error(func):
 
                 share_auth = self.__class__.SHARE_AUTHS.get(share_id)
                 if share_auth:
-                    share_auth.expire_time = 0.0
+                    share_auth.expire_time = 0
                 continue
 
             elif code == "ParamFlowException":

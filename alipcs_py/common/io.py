@@ -1,4 +1,5 @@
 from typing import (
+    Iterable,
     Optional,
     List,
     Tuple,
@@ -6,7 +7,6 @@ from typing import (
     Union,
     Any,
     Callable,
-    Generator,
     IO,
     cast,
 )
@@ -965,7 +965,7 @@ class AutoDecryptRequest:
         assert self._content_length
         return self._content_length - self._total_head_len
 
-    def read(self, _range: Tuple[int, int]) -> Generator[bytes, None, None]:
+    def read(self, _range: Tuple[int, int]) -> Iterable[bytes]:
         self._init()
 
         start, end = _range
@@ -1064,6 +1064,22 @@ class RangeRequestIO(IO):
             if self._callback:
                 self._callback(self._offset)
         return buf
+
+    def read_iter(self, size: int = -1) -> Iterable[bytes]:
+        if size == 0:
+            return b""
+
+        if size == -1:
+            size = len(self) - self._offset
+
+        start, end = self._offset, self._offset + size
+
+        for buf in self._auto_decrypt_request.read((start, end)):
+            self._offset += len(buf)
+            # Call callback
+            if self._callback:
+                self._callback(self._offset)
+            yield buf
 
     def seek(self, offset: int, whence: int = 0) -> int:
         if whence == 0:
