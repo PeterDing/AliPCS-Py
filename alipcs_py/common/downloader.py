@@ -1,113 +1,76 @@
-from typing import Optional, List, Any, Callable
+from typing import Optional, Any, Callable
 from os import PathLike
 from pathlib import Path
-from threading import Semaphore
-from concurrent.futures import ThreadPoolExecutor, as_completed, Future
 
-from alipcs_py.common.constant import CPU_NUM
 from alipcs_py.common.io import RangeRequestIO
-from alipcs_py.common.concurrent import sure_release, retry
+from alipcs_py.common.concurrent import retry
 
-from rich.progress import TaskID
 
 DEFAULT_MAX_WORKERS = 5
 
 
-class MeDownloader(RangeRequestIO):
-    _executor: ThreadPoolExecutor
-    _semaphore: Semaphore
-    _futures: List[Future]
-
-    @classmethod
-    def _set_executor(
-        cls,
-        max_workers: int = CPU_NUM,
-    ):
-        cls._executor = ThreadPoolExecutor(max_workers=max_workers)
-        cls._semaphore = Semaphore(max_workers)
-        cls._futures = []
-
-    @classmethod
-    def _exit_executor(cls):
-        if getattr(cls, "_executor", None):
-            as_completed(cls._futures)
-            cls._futures = []
-            cls._executor.__exit__(None, None, None)
-
-    def __init__(self, *args, max_workers: int = CPU_NUM, **kwargs):
-        super().__init__(*args, **kwargs)
-        if not getattr(self.__class__, "_executor", None):
-            self.__class__._set_executor(max_workers)
-
-    def download(
+class MeDownloader:
+    def __init__(
         self,
+        range_request_io: RangeRequestIO,
         localpath: PathLike,
-        task_id: Optional[TaskID],
         continue_: bool = False,
-        done_callback: Optional[Callable[[Future], Any]] = None,
-        except_callback: Optional[Callable[..., Any]] = None,
-    ):
+        retries: int = 2,
+        done_callback: Optional[Callable[..., Any]] = None,
+        except_callback: Optional[Callable[[Exception], Any]] = None,
+    ) -> None:
+        self.range_request_io = range_request_io
+        self.localpath = localpath
+        self.continue_ = continue_
+        self.retries = retries
+        self.done_callback = done_callback
+        self.except_callback = except_callback
+
+    def _init_fd(self):
+        if self.continue_:
+            path = Path(self.localpath)
+            if self.range_request_io.seekable():
+                offset = path.stat().st_size if path.exists() else 0
+                fd = path.open("ab")
+                fd.seek(offset, 0)
+            else:
+                offset = 0
+                fd = path.open("wb")
+        else:
+            offset = 0
+            fd = open(self.localpath, "wb")
+
+        self.offset = offset
+        self.fd = fd
+
+    def download(self):
         """
         Download the url content to `localpath`
-
-        The downloading work executing in the class ThreadPoolExecutor
 
         Args:
             continue_ (bool): If set to True, only downloading the remain content depended on
             the size of `localpath`
         """
 
-        self._localpath = localpath
-        self._task_id = task_id
-        self._except_callback = except_callback
-        self.continue_ = continue_
-
-        cls = self.__class__
-        cls._semaphore.acquire()
-
-        fut = cls._executor.submit(
-            sure_release,
-            cls._semaphore,
-            self.work,
+        @retry(
+            self.retries,
+            except_callback=lambda err, fails: (
+                self.range_request_io.reset(),
+                self.except_callback(err) if self.except_callback else None,
+            ),
         )
-        if done_callback:
-            fut.add_done_callback(done_callback)
-        cls._futures.append(fut)
+        def _download():
+            self._init_fd()
 
-    def _init_fd(self):
-        if self.continue_:
-            _path = Path(self._localpath)
-            if self.seekable():
-                _offset = _path.stat().st_size if _path.exists() else 0
-                _fd = _path.open("ab")
-                _fd.seek(_offset, 0)
-            else:
-                _offset = 0
-                _fd = _path.open("wb")
-        else:
-            _offset = 0
-            _fd = open(self._localpath, "wb")
+            self.range_request_io.seek(self.offset)
 
-        self._offset = _offset
-        self._fd = _fd
+            for buf in self.range_request_io.read_iter():
+                self.fd.write(buf)
+                self.offset += len(buf)
 
-    @retry(30)
-    def work(self):
-        self._init_fd()
+            if self.done_callback:
+                self.done_callback()
 
-        try:
-            start, end = self._offset, len(self)
+            self.fd.close()
 
-            for b in self._auto_decrypt_request.read((start, end)):
-                self._fd.write(b)
-                self._offset += len(b)
-                # Call callback
-                if self._callback:
-                    self._callback(self._task_id, self._offset)
-        except Exception as err:
-            if self._except_callback:
-                self._except_callback(self._task_id)
-            self.reset()
-            raise err
-        finally:
-            self._fd.close()
+        _download()
