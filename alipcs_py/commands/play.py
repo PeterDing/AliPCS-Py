@@ -9,6 +9,7 @@ import time
 from urllib.parse import quote
 
 from alipcs_py.alipcs import AliPCSApi, PcsFile
+from alipcs_py.alipcs.errors import AliPCSError
 from alipcs_py.commands.sifter import Sifter, sift
 from alipcs_py.commands.download import USER_AGENT
 from alipcs_py.commands.errors import CommandError
@@ -118,31 +119,46 @@ def play_file(
 
     print(f"[italic blue]Play[/italic blue]: {pcs_file.path or pcs_file.name}")
 
-    # For typing
-    download_url: Optional[str] = None
-
     use_local_server = bool(local_server)
 
     if share_id:
+        shared_pcs_file_id = pcs_file.file_id
+        shared_pcs_filename = pcs_file.name
         use_local_server = False
         remote_temp_dir = "/__alipcs_py_temp__"
         pcs_temp_dir = api.path(remote_temp_dir) or api.makedir_path(remote_temp_dir)
-        pcs_file = api.transfer_shared_files([pcs_file.file_id], pcs_temp_dir.file_id, share_id)[0]
-        # download_url = api.shared_file_download_url(pcs_file.file_id, share_id)
-
+        pf = api.transfer_shared_files([shared_pcs_file_id], pcs_temp_dir.file_id, share_id)[0]
+        target_file_id = pf.file_id
         while True:
-            pcs_file = api.meta(pcs_file.file_id)[0]
-            if pcs_file.download_url:
-                break
-            time.sleep(2)
+            pfs = api.search_all(shared_pcs_filename)
+            for pf_ in pfs:
+                if pf_.file_id == target_file_id:
+                    pcs_file = pf_
+                    break
+            else:
+                time.sleep(2)
+                continue
 
+            break
+
+    download_url: Optional[str] = None
     if use_local_server:
         download_url = f"{local_server}/__fileid__/?file_id={pcs_file.file_id}"
         print("url:", download_url)
     else:
         if not pcs_file or pcs_file.is_dir:
             return
-        pcs_file.update_download_url(api)
+
+        while True:
+            try:
+                pcs_file = api.update_download_url(pcs_file)
+                break
+            except AliPCSError as err:
+                if err.error_code == "TooManyRequests":
+                    time.sleep(random.randint(1, 2))
+                    continue
+                raise err
+
         download_url = pcs_file.download_url
 
     if download_url:
