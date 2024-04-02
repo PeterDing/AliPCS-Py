@@ -1,5 +1,5 @@
 from hashlib import sha1
-from typing import Optional, List, Tuple, IO
+from typing import Callable, Optional, List, Tuple, IO
 
 import os
 import time
@@ -509,10 +509,20 @@ def upload_many(
 
             logger.debug("`upload_many`: Upload: index: %s, task_id: %s", idx, task_id)
 
+            retry_upload_file = retry(
+                -1,
+                except_callback=lambda err, fail_count: logger.warning(
+                    "`upload_file`: fails: error: %s, fail_count: %s",
+                    err,
+                    fail_count,
+                    exc_info=err,
+                ),
+            )(upload_file)
+
             fut = executor.submit(
                 sure_release,
                 semaphore,
-                upload_file,
+                retry_upload_file,
                 api,
                 from_to,
                 check_name_mode,
@@ -546,15 +556,6 @@ def upload_many(
         _progress.console.print(table)
 
 
-@retry(
-    -1,
-    except_callback=lambda err, fail_count: logger.warning(
-        "`upload_file`: fails: error: %s, fail_count: %s",
-        err,
-        fail_count,
-        exc_info=err,
-    ),
-)
 def upload_file(
     api: AliPCSApi,
     from_to: FromTo,
@@ -565,6 +566,7 @@ def upload_file(
     task_id: Optional[TaskID] = None,
     user_id: Optional[str] = None,
     user_name: Optional[str] = None,
+    callback_for_monitor: Optional[Callable[[MultipartEncoderMonitor], None]] = None,
 ):
     """Upload one file with one connection"""
 
@@ -687,7 +689,11 @@ def upload_file(
                     )
 
                     upload_url = upload_urls[slice_idx]
-                    api.upload_slice(io, upload_url, callback=callback_for_slice)
+                    api.upload_slice(
+                        io,
+                        upload_url,
+                        callback=callback_for_slice if callback_for_monitor is None else callback_for_monitor,
+                    )
                     slice_idx += 1
                     break
                 except Exception as err:
