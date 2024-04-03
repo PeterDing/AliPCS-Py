@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.7.0 - 2024-04-03
+
+### Updated
+
+- `MeDownloader` 剥离线程池，让上层函数来控制。
+- 不在 `upload_file` 函数上进行重试，让上层函数来控制。
+- `PcsFile.update_download_url` 将在下个版本删除。请该用 `AliPCSApi.update_download_url`。
+- `RangeRequestIO` 增加 `read_iter` 方法。
+- 使用 `python-dateutil` 库来解析时间。
+
+### Fixed
+
+- 修复播放分享文件时的暂停问题。
+
 ## v0.6.3 - 2024-02-04
 
 ### Updated
