@@ -1,15 +1,23 @@
-from typing import Optional, List, Dict, Any, TYPE_CHECKING
+from typing import Optional, List, Dict, Any, TYPE_CHECKING, Tuple, TypeVar
 from dataclasses import dataclass
-from collections import namedtuple
 import time
 import re
 import urllib.parse
 import warnings
 
+
 from alipcs_py.common.date import iso_8601_to_timestamp, now_timestamp
 
 if TYPE_CHECKING:
     from alipcs_py.alipcs.api import AliPCSApi
+
+
+# FromTo type is used to represent the direction of the file transfer
+# When the direction is from local to remote, the type is FromTo[PathType, str]
+# When the direction is from remote to local, the type is FromTo[str, PathType]
+F = TypeVar("F")
+T = TypeVar("T")
+FromTo = Tuple[F, T]
 
 
 @dataclass
@@ -51,21 +59,36 @@ class PcsRapidUploadInfo:
 
 @dataclass
 class PcsFile:
-    """
-    A Ali PCS file
+    """The remote file/directory information
 
-    path: str  # remote absolute path
-    is_dir: Optional[bool] = None
-    is_file: Optional[bool] = None
-    fs_id: Optional[int] = None  # file id
-    size: Optional[int] = None
-    md5: Optional[str] = None
-    block_list: Optional[List[str]] = None  # block md5 list
-    category: Optional[int] = None
-    user_id: Optional[int] = None
-    created_at: Optional[int] = None  # server created time
-    updated_at: Optional[int] = None  # server updated time
-    shared: Optional[bool] = None  # this file is shared if True
+    Args:
+        file_id (str): The unique identifier of the file.
+        name (str): The name of the file.
+        parent_file_id (str): The unique identifier of the parent file. If the parent directory  is '/', its id is 'root'.
+        type (str): The type of the file, such as "file" or "folder".
+        is_dir (bool): Indicates whether the file is a directory.
+        is_file (bool): Indicates whether the file is a regular file.
+        size (int): The size of the file in bytes.
+        path (str): The remote path of the file. Default is the name of the file.
+        created_at (Optional[int]): The timestamp of when the file was created on the server.
+        updated_at (Optional[int]): The timestamp of when the file was last updated on the server.
+        file_extension (Optional[str]): The file extension of the file.
+        content_type (Optional[str]): The content type of the file.
+        mime_type (Optional[str]): The MIME type of the file.
+        mime_extension (Optional[str]): The MIME type extension of the file.
+        labels (Optional[List[str]]): A list of labels associated with the file.
+        status (Optional[str]): The status of the file.
+        hidden (Optional[bool]): Indicates whether the file is hidden.
+        starred (Optional[bool]): Indicates whether the file is starred.
+        category (Optional[str]): The category of the file.
+        punish_flag (Optional[int]): A flag indicating whether the file has been punished.
+        encrypt_mode (Optional[str]): The encryption mode of the file.
+        drive_id (Optional[str]): The unique identifier of the drive the file is stored in.
+        domain_id (Optional[str]): The unique identifier of the domain the file is associated with.
+        upload_id (Optional[str]): The unique identifier of the file upload.
+        async_task_id (Optional[str]): The unique identifier of the asynchronous task associated with the file.
+        rapid_upload_info (Optional[PcsRapidUploadInfo]): Information about the rapid upload of the file.
+        download_url (Optional[str]): The URL for downloading the file.
     """
 
     file_id: str
@@ -75,10 +98,10 @@ class PcsFile:
     is_dir: bool
     is_file: bool
     size: int = 0
-    path: str = ""  # remote absolute path
+    path: str = ""
 
     created_at: Optional[int] = None  # server created time
-    updated_at: Optional[int] = None  # server updated time (updated time)
+    updated_at: Optional[int] = None  # server updated time
 
     file_extension: Optional[str] = None
     content_type: Optional[str] = None
@@ -120,14 +143,16 @@ class PcsFile:
                 name=info.get("name"),
             )
 
+        filename = info.get("name") or info.get("file_name", "")
         return PcsFile(
             file_id=info.get("file_id", ""),
-            name=info.get("name", ""),
+            name=filename,
             parent_file_id=info.get("parent_file_id", ""),
             type=info.get("type", ""),
             is_dir=info.get("type") == "folder",
             is_file=info.get("type") == "file",
             size=info.get("size"),
+            path=filename,  # Default path is the name of the file
             created_at=created_at,
             updated_at=updated_at,
             file_extension=info.get("file_extension"),
@@ -175,25 +200,6 @@ class PcsFile:
                 if time.time() < expire_time - 5:
                     return False
         return True
-
-    def update_download_url(self, api: "AliPCSApi"):
-        """Update the download url if it expires"""
-
-        warnings.warn(
-            "This method is deprecated and will be removed in a future version, use `update_download_url` in `AliPCSApi` instead",
-            DeprecationWarning,
-        )
-
-        if self.is_file:
-            if self.download_url_expires():
-                pcs_url = api.download_link(self.file_id)
-                if pcs_url:
-                    self.download_url = pcs_url.url
-            else:
-                if getattr(api, "_aliopenpcsapi", None):
-                    pcs_url = api.download_link(self.file_id)
-                    if pcs_url:
-                        self.download_url = pcs_url.url
 
 
 @dataclass
@@ -419,9 +425,6 @@ class SharedAuth:
         return time.time() >= self.expire_time
 
 
-FromTo = namedtuple("FromTo", ["from_", "to_"])
-
-
 @dataclass
 class PcsSpace:
     used_size: int
@@ -592,6 +595,18 @@ class PcsDownloadUrl:
     method: Optional[str] = None
     expiration: Optional[int] = None
     ratelimit: Optional[PcsRateLimit] = None
+
+    def expires(self) -> bool:
+        """Check whether the `self.download_url` expires"""
+
+        url = self.download_url or self.url
+        if url:
+            mod = re.search(r"oss-expires=(\d+)", url)
+            if mod:
+                expire_time = float(mod.group(1))
+                if time.time() < expire_time - 5:
+                    return False
+        return True
 
     @staticmethod
     def from_(info) -> "PcsDownloadUrl":
