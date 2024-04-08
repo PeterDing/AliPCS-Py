@@ -1,5 +1,5 @@
-from typing import Iterable, Optional, List, Tuple
-from types import SimpleNamespace
+from typing import Iterable, Optional, List, Sequence, Tuple, Union
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from enum import Enum
 from pathlib import Path
 import os
@@ -9,9 +9,9 @@ import subprocess
 import random
 
 from alipcs_py.alipcs import AliPCSApi, PcsFile
-from alipcs_py.alipcs.errors import AliPCSError
+from alipcs_py.alipcs.errors import AliPCSError, DownloadError
 from alipcs_py.alipcs.pcs import PCS_UA
-from alipcs_py.common.concurrent import Executor
+from alipcs_py.common.path import PathType
 from alipcs_py.utils import human_size_to_int
 from alipcs_py.common import constant
 from alipcs_py.common.io import RangeRequestIO, to_decryptio, DecryptIO, READ_SIZE
@@ -41,16 +41,6 @@ DEFAULT_CHUNK_SIZE = str(100 * constant.OneM)
 MAX_CHUNK_SIZE = 50 * constant.OneM
 
 
-class DownloadParams(SimpleNamespace):
-    concurrency: int = DEFAULT_CONCURRENCY
-    chunk_size: str = DEFAULT_CHUNK_SIZE
-    quiet: bool = False
-    retries: int = 2
-
-
-DEFAULT_DOWNLOADPARAMS = DownloadParams()
-
-
 class Downloader(Enum):
     me = "me"
     aget_py = "aget"  # https://github.com/PeterDing/aget
@@ -69,7 +59,10 @@ class Downloader(Enum):
         self,
         url: str,
         localpath: str,
-        downloadparams: DownloadParams = DEFAULT_DOWNLOADPARAMS,
+        concurrency: int = DEFAULT_CONCURRENCY,
+        chunk_size: Union[str, int] = DEFAULT_CHUNK_SIZE,
+        show_progress: bool = False,
+        max_retries: int = 2,
         out_cmd: bool = False,
         encrypt_password: bytes = b"",
     ):
@@ -83,24 +76,47 @@ class Downloader(Enum):
             self._me_download(
                 url,
                 localpath_tmp,
-                downloadparams=downloadparams,
+                chunk_size=chunk_size,
+                show_progress=show_progress,
+                max_retries=max_retries,
                 encrypt_password=encrypt_password,
             )
             shutil.move(localpath_tmp, localpath)
             return
         elif self == Downloader.aget_py:
-            cmd = self._aget_py_cmd(url, localpath_tmp, downloadparams)
+            cmd = self._aget_py_cmd(
+                url,
+                localpath_tmp,
+                concurrency=concurrency,
+                chunk_size=chunk_size,
+                show_progress=show_progress,
+                max_retries=max_retries,
+            )
         elif self == Downloader.aget_rs:
-            cmd = self._aget_rs_cmd(url, localpath_tmp, downloadparams)
+            cmd = self._aget_rs_cmd(
+                url,
+                localpath_tmp,
+                concurrency=concurrency,
+                chunk_size=chunk_size,
+                show_progress=show_progress,
+                max_retries=max_retries,
+            )
         else:  # elif self == Downloader.aria2:
-            cmd = self._aria2_cmd(url, localpath_tmp, downloadparams)
+            cmd = self._aria2_cmd(
+                url,
+                localpath_tmp,
+                concurrency=concurrency,
+                chunk_size=chunk_size,
+                show_progress=show_progress,
+                max_retries=max_retries,
+            )
 
         # Print out command
         if out_cmd:
             _print(" ".join((repr(c) for c in cmd)))
             return
 
-        returncode = self.spawn(cmd, downloadparams.quiet)
+        returncode = self.spawn(cmd, show_progress=show_progress)
 
         logger.debug("`download`: cmd returncode: %s", returncode)
 
@@ -121,15 +137,17 @@ class Downloader(Enum):
                     return
             shutil.move(localpath_tmp, localpath)
 
-    def spawn(self, cmd: List[str], quiet: bool = False):
-        child = subprocess.run(cmd, stdout=subprocess.DEVNULL if quiet else None)
+    def spawn(self, cmd: List[str], show_progress: bool = False):
+        child = subprocess.run(cmd, stdout=subprocess.DEVNULL if not show_progress else None)
         return child.returncode
 
     def _me_download(
         self,
         url: str,
         localpath: str,
-        downloadparams: DownloadParams = DEFAULT_DOWNLOADPARAMS,
+        chunk_size: Union[str, int] = DEFAULT_CHUNK_SIZE,
+        show_progress: bool = False,
+        max_retries: int = 2,
         encrypt_password: bytes = b"",
     ):
         headers = {
@@ -139,7 +157,7 @@ class Downloader(Enum):
         }
 
         task_id: Optional[TaskID] = None
-        if not downloadparams.quiet:
+        if show_progress:
             init_progress_bar()
             task_id = _progress.add_task("MeDownloader", start=False, title=localpath)
 
@@ -153,12 +171,13 @@ class Downloader(Enum):
         def except_callback(err):
             reset_progress_task(task_id)
 
-        chunk_size_int = human_size_to_int(downloadparams.chunk_size)
+        if isinstance(chunk_size, str):
+            chunk_size = human_size_to_int(chunk_size)
         io = RangeRequestIO(
             "GET",
             url,
             headers=headers,
-            max_chunk_size=chunk_size_int,
+            max_chunk_size=chunk_size,
             callback=monitor_callback,
             encrypt_password=encrypt_password,
         )
@@ -170,9 +189,9 @@ class Downloader(Enum):
 
         meDownloader = MeDownloader(
             io,
-            localpath=Path(localpath),
+            localpath=localpath,
             continue_=True,
-            retries=downloadparams.retries,
+            max_retries=max_retries,
             done_callback=done_callback,
             except_callback=except_callback,
         )
@@ -182,7 +201,10 @@ class Downloader(Enum):
         self,
         url: str,
         localpath: str,
-        downloadparams: DownloadParams = DEFAULT_DOWNLOADPARAMS,
+        concurrency: int = DEFAULT_CONCURRENCY,
+        chunk_size: Union[str, int] = DEFAULT_CHUNK_SIZE,
+        show_progress: bool = False,
+        max_retries: int = 2,
     ):
         cmd = [
             self.which(),
@@ -196,17 +218,22 @@ class Downloader(Enum):
             "-H",
             "Referer: https://www.aliyundrive.com/",
             "-s",
-            str(downloadparams.concurrency),
+            str(concurrency),
             "-k",
-            downloadparams.chunk_size,
+            chunk_size,
         ]
+        if not show_progress:
+            cmd.append("-q")
         return cmd
 
     def _aget_rs_cmd(
         self,
         url: str,
         localpath: str,
-        downloadparams: DownloadParams = DEFAULT_DOWNLOADPARAMS,
+        concurrency: int = DEFAULT_CONCURRENCY,
+        chunk_size: Union[str, int] = DEFAULT_CHUNK_SIZE,
+        show_progress: bool = False,
+        max_retries: int = 2,
     ):
         cmd = [
             self.which(),
@@ -220,17 +247,25 @@ class Downloader(Enum):
             "-H",
             "Referer: https://www.aliyundrive.com/",
             "-s",
-            str(downloadparams.concurrency),
+            str(concurrency),
             "-k",
-            downloadparams.chunk_size,
+            chunk_size,
         ]
+        if not show_progress:
+            cmd.append("--quiet")
+        if max_retries > 0:
+            cmd.append("--retries")
+            cmd.append(str(max_retries))
         return cmd
 
     def _aria2_cmd(
         self,
         url: str,
         localpath: str,
-        downloadparams: DownloadParams = DEFAULT_DOWNLOADPARAMS,
+        concurrency: int = DEFAULT_CONCURRENCY,
+        chunk_size: Union[str, int] = DEFAULT_CHUNK_SIZE,
+        show_progress: bool = False,
+        max_retries: int = 2,
     ):
         directory, filename = os.path.split(localpath)
         cmd = [
@@ -247,11 +282,13 @@ class Downloader(Enum):
             "--header",
             "Referer: https://www.aliyundrive.com/",
             "-s",
-            str(downloadparams.concurrency),
+            str(concurrency),
             "-k",
-            downloadparams.chunk_size,
+            chunk_size,
             url,
         ]
+        if not show_progress:
+            cmd.append("--quiet")
         return cmd
 
 
@@ -260,47 +297,85 @@ DEFAULT_DOWNLOADER = Downloader.me
 
 def download_file(
     api: AliPCSApi,
-    pcs_file: PcsFile,
-    localdir: str,
-    share_id: str = None,
-    downloader: Downloader = DEFAULT_DOWNLOADER,
-    downloadparams: DownloadParams = DEFAULT_DOWNLOADPARAMS,
+    remote_file: Union[str, PcsFile],
+    localdir: PathType = ".",
+    share_id: Optional[str] = None,
+    downloader: Union[str, Downloader] = DEFAULT_DOWNLOADER,
+    concurrency: int = DEFAULT_CONCURRENCY,
+    chunk_size: Union[str, int] = DEFAULT_CHUNK_SIZE,
+    show_progress: bool = False,
+    max_retries: int = 2,
     out_cmd: bool = False,
     encrypt_password: bytes = b"",
-):
-    quiet = downloadparams.quiet
-    localpath = Path(localdir) / pcs_file.name
+) -> None:
+    """Download a `remote_file` to the `localdir`
+
+    Raise the exception if any error occurred.
+
+    Args:
+        api (AliPCSApi): AliPCSApi instance.
+        remote_file (str | PcsFile): The remote file to download.
+        localdir (str | PathLike | Path, optional): The local directory to save file. Defaults to ".".
+        share_id (str, optional): The share_id of file. Defaults to None.
+        downloader (str, Downloader, optional): The downloader(or its name) to download file. Defaults to DEFAULT_DOWNLOADER.
+        concurrency (int, optional): The number of concurrent downloads. Defaults to DEFAULT_CONCURRENCY.
+        chunk_size (str | int, optional): The chunk size of each download. Defaults to DEFAULT_CHUNK_SIZE.
+        show_progress (bool, optional): Whether show progress bar. Defaults to False.
+        max_retries (int, optional): The max retries of download. Defaults to 2.
+        out_cmd (bool, optional): Whether print out the command. Defaults to False.
+        encrypt_password (bytes, optional): The password to decrypt the file. Defaults to b"".
+    """
+
+    if isinstance(downloader, str):
+        downloader = getattr(Downloader, downloader)
+    assert isinstance(downloader, Downloader)  # For linters
+
+    if isinstance(remote_file, str):
+        remote_pcs_file = api.get_file(remotepath=remote_file)
+        if remote_pcs_file is None:
+            raise ValueError(f"Remote file `{remote_file}` does not exists.")
+    else:
+        remote_pcs_file = remote_file
+
+    localpath = Path(localdir) / remote_pcs_file.name
 
     # Make sure parent directory existed
     if not localpath.parent.exists():
-        localpath.parent.mkdir(parents=True)
+        localpath.parent.mkdir(parents=True, exist_ok=True)
 
     if not out_cmd and localpath.exists():
-        if not quiet:
+        if not show_progress:
             print(f"[yellow]{localpath}[/yellow] is ready existed.")
         return
 
-    if not quiet and downloader != Downloader.me:
-        print(f"[italic blue]Download[/italic blue]: {pcs_file.path or pcs_file.name} to {localpath}")
+    if not show_progress and downloader != Downloader.me:
+        print(f"[italic blue]Download[/italic blue]: {remote_pcs_file.path or remote_pcs_file.name} to {localpath}")
 
-    download_url: Optional[str]
     if share_id:
+        shared_pcs_file_id = remote_pcs_file.file_id
+        shared_pcs_filename = remote_pcs_file.name
         remote_temp_dir = "/__alipcs_py_temp__"
-        pcs_temp_dir = api.path(remote_temp_dir) or api.makedir_path(remote_temp_dir)
-        pcs_file = api.transfer_shared_files([pcs_file.file_id], pcs_temp_dir.file_id, share_id)[0]
-
+        pcs_temp_dir = api.path(remote_temp_dir) or api.makedir_path(remote_temp_dir)[0]
+        pf = api.transfer_shared_files([shared_pcs_file_id], pcs_temp_dir.file_id, share_id)[0]
+        target_file_id = pf.file_id
         while True:
-            pcs_file = api.meta(pcs_file.file_id)[0]
-            if pcs_file.download_url:
-                break
-            time.sleep(2)
+            pfs = api.search_all(shared_pcs_filename)
+            for pf_ in pfs:
+                if pf_.file_id == target_file_id:
+                    remote_pcs_file = pf_
+                    break
+            else:
+                time.sleep(2)
+                continue
 
-    if not pcs_file or pcs_file.is_dir:
+            break
+
+    if not remote_pcs_file or remote_pcs_file.is_dir:
         return
 
     while True:
         try:
-            pcs_file = api.update_download_url(pcs_file)
+            remote_pcs_file = api.update_download_url(remote_pcs_file)
             break
         except AliPCSError as err:
             if err.error_code == "TooManyRequests":
@@ -308,37 +383,40 @@ def download_file(
                 continue
             raise err
 
-    download_url = pcs_file.download_url
-
+    download_url = remote_pcs_file.download_url
     assert download_url
 
     try:
         downloader.download(
             download_url,
             str(localpath),
-            downloadparams=downloadparams,
+            concurrency=concurrency,
+            chunk_size=chunk_size,
+            show_progress=show_progress,
+            max_retries=max_retries,
             out_cmd=out_cmd,
             encrypt_password=encrypt_password,
         )
-    except Exception as err:
-        logger.error("`download_file` fails: error: %s", err)
-        if not quiet:
-            print(f"[red]ERROR[/red]: `{pcs_file.path or pcs_file.name}` download fails.")
+    except Exception as origin_err:
+        msg = f'Download "{remote_pcs_file.path}" (file_id = "{remote_pcs_file.file_id}") to "{localpath}" failed. error: {origin_err}'
+        logger.debug(msg)
+        err = DownloadError(msg, remote_pcs_file=remote_pcs_file, localdir=str(localdir))
+        raise err from origin_err
 
     if share_id:
-        api.remove(pcs_file.file_id)
+        api.remove(remote_pcs_file.file_id)
 
 
 def walk_remote_paths(
     api: AliPCSApi,
     pcs_files: List[PcsFile],
-    localdir: str,
-    share_id: str = None,
+    localdir: PathType,
+    share_id: Optional[str] = None,
     sifters: List[Sifter] = [],
     recursive: bool = False,
     from_index: int = 0,
     deep: int = 0,
-) -> Iterable[Tuple[PcsFile, str]]:
+) -> Iterable[Tuple[PcsFile, PathType]]:
     pcs_files = [pf for pf in sift(pcs_files, sifters, recursive=recursive)]
     for pf in pcs_files:
         if pf.is_file:
@@ -347,15 +425,15 @@ def walk_remote_paths(
             if deep > 0 and not recursive:
                 continue
 
-            _localdir = Path(localdir) / pf.name
+            localdir_ = Path(localdir) / pf.name
             for pcs_file in api.list_iter(pf.file_id, share_id=share_id):
                 if pcs_file.is_file:
-                    yield pcs_file, str(_localdir)
+                    yield pcs_file, localdir_
                 else:
                     yield from walk_remote_paths(
                         api,
                         [pcs_file],
-                        str(_localdir),
+                        localdir_,
                         share_id=share_id,
                         sifters=sifters,
                         recursive=recursive,
@@ -366,58 +444,86 @@ def walk_remote_paths(
 
 def download(
     api: AliPCSApi,
-    remotepaths: List[str],
-    file_ids: List[str],
-    localdir: str,
-    share_id: str = None,
+    remotepaths: Sequence[Union[str, PcsFile]] = [],
+    file_ids: List[str] = [],
+    localdir: PathType = ".",
+    share_id: Optional[str] = None,
     sifters: List[Sifter] = [],
     recursive: bool = False,
     from_index: int = 0,
-    downloader: Downloader = DEFAULT_DOWNLOADER,
-    downloadparams: DownloadParams = DEFAULT_DOWNLOADPARAMS,
+    downloader: Union[str, Downloader] = DEFAULT_DOWNLOADER,
+    concurrency: int = DEFAULT_CONCURRENCY,
+    chunk_size: Union[str, int] = DEFAULT_CHUNK_SIZE,
+    show_progress: bool = False,
+    max_retries: int = 2,
     out_cmd: bool = False,
     encrypt_password: bytes = b"",
-):
-    """Download `remotepaths` to the `localdir`
+) -> None:
+    """Download files with their `remotepaths` and `file_ids` to the `localdir`
+
+    Use a `ThreadPoolExecutor` to download files concurrently and raise the exception if any error occurred.
 
     Args:
-        `from_index` (int): The start index of downloading entries from EACH remote directory
+        api (AliPCSApi): AliPCSApi instance.
+        remotepaths (List[Union[str, PcsFile]], optional): The remotepaths of files or directories to download.
+        file_ids (List[str], optional): The file_ids of files or directories to download. Defaults to [].
+        localdir (str | PathLike | Path, optional): The local directory to save files. Defaults to ".".
+        share_id (str, optional): The share_id of files. Defaults to None.
+        sifters (List[Sifter], optional): The sifters to filter files. Defaults to [].
+        recursive (bool, optional): Whether download files recursively. Defaults to False.
+        from_index (int, optional): The index of the first file to download. Defaults to 0.
+        downloader (str, Downloader, optional): The downloader(or its name) to download files. Defaults to Downloader.me.
+        concurrency (int, optional): The number of concurrent downloads. Defaults to DEFAULT_CONCURRENCY.
+        chunk_size (str | int, optional): The chunk size of each download. Defaults to DEFAULT_CHUNK_SIZE.
+        show_progress (bool, optional): Whether show progress bar. Defaults to False.
+        max_retries (int, optional): The max retries of download. Defaults to 2.
+        out_cmd (bool, optional): Whether print out the command. Defaults to False.
+        encrypt_password (bytes, optional): The password to decrypt the file. Defaults to b"".
     """
 
     logger.debug(
-        "`download`: sifters: %s, recursive: %s, from_index: %s, "
-        "downloader: %s, downloadparams: %s, out_cmd: %s, has encrypt_password: %s",
+        "download: remotepaths=%s, file_ids=%s, localdir=%s, share_id=%s, sifters=%s, recursive=%s, from_index=%s, downloader=%s, concurrency=%s, chunk_size=%s, quiet=%s, max_retries=%s, out_cmd=%s, encrypt_password=%s",
+        [rp.path if isinstance(rp, PcsFile) else rp for rp in remotepaths],
+        file_ids,
+        localdir,
+        share_id,
         sifters,
         recursive,
         from_index,
         downloader,
-        downloadparams,
+        concurrency,
+        chunk_size,
+        show_progress,
+        max_retries,
         out_cmd,
-        bool(encrypt_password),
+        encrypt_password,
     )
 
-    quiet = downloadparams.quiet
+    assert len(remotepaths) + len(file_ids) > 0, "No remotepaths or file_ids to download."
 
     pcs_files = []
     for rp in remotepaths:
-        pf = api.path(rp, share_id=share_id)
+        if isinstance(rp, PcsFile):
+            pcs_files.append(rp)
+            continue
+        pf = api.get_file(remotepath=rp, share_id=share_id)
         if pf is None:
-            if not quiet:
-                print(f"[yellow]WARNING[/yellow]: `{rp}` does not exist.")
+            if not show_progress:
+                print(f"[yellow]WARNING[/yellow]: `remotepath={rp}` does not exist.")
             continue
         pcs_files.append(pf)
 
     for file_id in file_ids:
-        info = api.meta(file_id, share_id=share_id)
-        if len(info) == 0:
-            if not quiet:
-                print(f"[yellow]WARNING[/yellow]: `{file_id}` does not exist.")
+        pf = api.get_file(file_id=file_id, share_id=share_id)
+        if pf is None:
+            if not show_progress:
+                print(f"[yellow]WARNING[/yellow]: `{file_id=}` does not exist.")
             continue
-        pcs_files.append(info[0])
+        pcs_files.append(pf)
 
-    using_me_downloader = downloader == Downloader.me
-    with Executor(downloadparams.concurrency if using_me_downloader else 1) as executor:
-        for pf, _localdir in walk_remote_paths(
+    futures = []
+    with ThreadPoolExecutor(concurrency) as executor:
+        for pf, localdir_ in walk_remote_paths(
             api,
             pcs_files,
             localdir,
@@ -426,17 +532,26 @@ def download(
             recursive=recursive,
             from_index=from_index,
         ):
-            executor.submit(
+            fut = executor.submit(
                 download_file,
                 api,
                 pf,
-                _localdir,
+                localdir_,
                 share_id=share_id,
                 downloader=downloader,
-                downloadparams=downloadparams,
+                concurrency=concurrency,
+                chunk_size=chunk_size,
+                show_progress=show_progress,
+                max_retries=max_retries,
                 out_cmd=out_cmd,
                 encrypt_password=encrypt_password,
             )
+            futures.append(fut)
 
-    if not quiet:
+    # Wait for all futures done
+    for fut in as_completed(futures):
+        # Throw the exception if the future has exception
+        fut.result()
+
+    if not show_progress:
         _progress.stop()
