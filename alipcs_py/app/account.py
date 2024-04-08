@@ -259,7 +259,7 @@ class AccountManager:
 
         data_path = Path(data_path).expanduser()
         if not data_path.parent.exists():
-            data_path.parent.mkdir(parents=True)
+            data_path.parent.mkdir(parents=True, exist_ok=True)
 
         apis = self._apis
         self._apis = {}  # Ignore to save apis
