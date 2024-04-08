@@ -1,6 +1,13 @@
 name: AliPCS-Py Build & Test
 
-on: [push, pull_request]
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+      - release/*
 
 jobs:
   build-test:
@@ -8,14 +15,14 @@ jobs:
     strategy:
       matrix:
         os: [windows-latest, ubuntu-latest]
-        python-version: ['3.8', '3.9', '3.10', '3.11', '3.12']
+        python-version: ["3.8", "3.12"]
     defaults:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v2
+        uses: actions/setup-python@v4
         with:
           python-version: ${{ matrix.python-version }}
           architecture: x64
@@ -35,7 +42,7 @@ jobs:
       - name: Test with pytest
         run: |
           poetry run python build.py build_ext --inplace
-          poetry run pytest -s tests/test_common.py
+          poetry run pytest -v -s
       - name: Test package
         run: |
           poetry build -f sdist
