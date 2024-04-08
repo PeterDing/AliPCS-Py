@@ -65,32 +65,26 @@ def make_alipcs_error(error_code: str, info: Any = None) -> AliPCSError:
     return AliPCSError(msg, error_code=error_code)
 
 
-def assert_ok(func):
-    """Assert the errno of response is not 0"""
-
-    @wraps(func)
-    def check(*args, **kwargs):
-        info = func(*args, **kwargs)
-        error_code = info.get("code")
-
-        if error_code:
-            err = make_alipcs_error(error_code, str(info))
-            raise err
-
-        return info
-
-    return check
-
-
 def handle_error(func):
-    @wraps(func)
-    def refresh(*args, **kwargs):
-        code = "This is impossible !!!"
-        for _ in range(2):
-            self = args[0]
+    """Handle error when calling AliPCS API."""
 
-            info = func(*args, **kwargs)
-            code = info.get("code")
+    @wraps(func)
+    def retry(*args, **kwargs):
+        self = args[0]
+        max_retries = getattr(self, "_error_max_retries", 2)
+        code = "This is impossible !!!"
+        result = None
+        for _ in range(max_retries):
+            result = func(*args, **kwargs)
+            if not isinstance(result, dict):
+                return result
+
+            code = result.get("code")
+            if not code:
+                return result
+
+            # Error code
+            # {{{
             if code == "AccessTokenInvalid":
                 self.refresh()
                 continue
@@ -109,7 +103,7 @@ def handle_error(func):
                 continue
 
             elif code == "ParamFlowException":
-                logger.warning("ParamFlowException, sleep 10s")
+                logger.warning("ParamFlowException occurs. sleep 10s.")
                 time.sleep(10)
                 continue
 
@@ -117,12 +111,16 @@ def handle_error(func):
                 self._signature = ""
                 continue
 
-            elif code == "NotFound.File" and func.__name__ == "meta":
-                # keep the not found file info for meta api
-                return info
+            elif code.startswith("NotFound."):
+                break
+            # }}}
 
-            return info
+            # Status code
+            # {{{
+            elif code == "PreHashMatched":  # AliPCS.create_file: Pre hash matched.
+                return result
+            # }}}
 
-        raise make_alipcs_error(code)
+        raise make_alipcs_error(code, info=result)
 
-    return refresh
+    return retry
