@@ -1,9 +1,9 @@
 from typing import Optional, Any, Callable
-from os import PathLike
 from pathlib import Path
 
 from alipcs_py.common.io import RangeRequestIO
 from alipcs_py.common.concurrent import retry
+from alipcs_py.common.path import PathType
 
 
 DEFAULT_MAX_WORKERS = 5
@@ -13,16 +13,16 @@ class MeDownloader:
     def __init__(
         self,
         range_request_io: RangeRequestIO,
-        localpath: PathLike,
+        localpath: PathType,
         continue_: bool = False,
-        retries: int = 2,
+        max_retries: int = 2,
         done_callback: Optional[Callable[..., Any]] = None,
         except_callback: Optional[Callable[[Exception], Any]] = None,
     ) -> None:
         self.range_request_io = range_request_io
         self.localpath = localpath
         self.continue_ = continue_
-        self.retries = retries
+        self.max_retries = max_retries
         self.done_callback = done_callback
         self.except_callback = except_callback
 
@@ -53,7 +53,7 @@ class MeDownloader:
         """
 
         @retry(
-            self.retries,
+            self.max_retries,
             except_callback=lambda err, fails: (
                 self.range_request_io.reset(),
                 self.except_callback(err) if self.except_callback else None,
