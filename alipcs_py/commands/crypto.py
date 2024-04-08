@@ -13,7 +13,7 @@ def decrypt_file(from_encrypted: PathLike, to_decrypted: PathLike, encrypt_passw
     dpath = Path(to_decrypted)
     dir_ = dpath.parent
     if not dir_.exists():
-        dir_.mkdir(parents=True)
+        dir_.mkdir(parents=True, exist_ok=True)
 
     with dpath.open("wb") as dfd:
         while True:
