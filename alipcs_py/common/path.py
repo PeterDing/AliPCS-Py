@@ -1,11 +1,10 @@
-from typing import Tuple, Union, Iterator
+from typing import Tuple, Union
 from pathlib import Path, PurePosixPath
-import os
 from os import PathLike
 
 from alipcs_py.common.platform import IS_WIN
 
-PathType = Union["str", PathLike, Path]
+PathType = Union[str, PathLike, Path]
 
 
 def exists(localpath: PathType) -> bool:
@@ -23,13 +22,7 @@ def is_dir(localpath: PathType) -> bool:
     return localpath.is_dir()
 
 
-def walk(localpath: PathType) -> Iterator[str]:
-    for root, _, files in os.walk(Path(localpath)):
-        r = Path(root)
-        for fl in files:
-            yield (r / fl).as_posix()
-
-
+# TODO: Change function name to `join_path_as_posix`
 def join_path(parent: PathType, *children: PathType) -> str:
     """Join posix paths"""
 
