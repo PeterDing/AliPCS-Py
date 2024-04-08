@@ -10,6 +10,8 @@ DEFAULT_MAX_WORKERS = 5
 
 
 class MeDownloader:
+    """Download the content from `range_request_io` to `localpath`"""
+
     def __init__(
         self,
         range_request_io: RangeRequestIO,
@@ -44,8 +46,7 @@ class MeDownloader:
         self.fd = fd
 
     def download(self):
-        """
-        Download the url content to `localpath`
+        """Download the url content to `localpath`
 
         Args:
             continue_ (bool): If set to True, only downloading the remain content depended on
