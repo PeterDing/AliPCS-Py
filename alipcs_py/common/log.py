@@ -31,7 +31,7 @@ def get_logger(
         filename = Path(filename)
         _dir = filename.parent
         if not _dir.exists():
-            _dir.mkdir()
+            _dir.mkdir(parents=True, exist_ok=True)
 
         file_handler = logging.FileHandler(filename)
         file_handler.setFormatter(logging.Formatter(fmt))
