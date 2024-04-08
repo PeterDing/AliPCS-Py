@@ -1,51 +1,31 @@
-from hashlib import sha1
-from typing import Callable, Optional, List, Tuple, IO
-
+from typing import Callable, Optional, List, Sequence, Tuple, IO, Union
 import os
 import time
-import functools
 import math
+from hashlib import sha1
 from io import BytesIO
-from enum import Enum
 from pathlib import Path
-from threading import Semaphore
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from alipcs_py.alipcs.errors import AliPCSError
+from alipcs_py.alipcs.errors import AliPCSError, RapidUploadError, UploadError
 from alipcs_py.alipcs import AliPCSApi, FromTo
 from alipcs_py.alipcs.pcs import CheckNameMode
 from alipcs_py.common import constant
-from alipcs_py.common.path import (
-    is_file,
-    exists,
-    posix_path_basename,
-    posix_path_dirname,
-    walk,
-)
+from alipcs_py.common.path import PathType, is_file, exists, posix_path_basename, posix_path_dirname
 from alipcs_py.common.event import KeyHandler, KeyboardMonitor
 from alipcs_py.common.constant import CPU_NUM
-from alipcs_py.common.concurrent import sure_release, retry
-from alipcs_py.common.progress_bar import (
-    _progress,
-    progress_task_exists,
-    remove_progress_task,
-    reset_progress_task,
-)
+from alipcs_py.common.concurrent import retry
+from alipcs_py.common.progress_bar import _progress, progress_task_exists, remove_progress_task, reset_progress_task
 from alipcs_py.common.crypto import calc_sha1, calc_proof_code
-from alipcs_py.common.io import (
-    total_len,
-    EncryptType,
-    reset_encrypt_io,
-)
+from alipcs_py.common.io import total_len, EncryptType, reset_encrypt_io
 from alipcs_py.commands.log import get_logger
 
 from requests_toolbelt import MultipartEncoderMonitor
 
 from rich.progress import TaskID
-from rich.table import Table
-from rich.box import SIMPLE
-from rich.text import Text
 from rich import print
+
+from alipcs_py.utils import human_size_to_int
 
 logger = get_logger(__name__)
 
@@ -53,8 +33,6 @@ logger = get_logger(__name__)
 DEFAULT_SLICE_SIZE = 80 * constant.OneM
 
 UPLOAD_STOP = False
-
-_rapiduploadinfo_file: Optional[str] = None
 
 
 def _wait_start():
@@ -88,107 +66,126 @@ def adjust_slice_size(slice_size: int, io_len: int) -> int:
         return slice_size
 
 
-def to_remotepath(sub_path: str, remotedir: str) -> str:
-    return (Path(remotedir) / sub_path).as_posix()
+def from_tos(localpaths: Sequence[PathType], remotedir: str) -> List[FromTo]:
+    """Recursively find all localpaths and their corresponded remotepath"""
 
-
-def from_tos(localpaths: List[str], remotedir: str) -> List[FromTo]:
-    """Find all localpaths and their corresponded remotepath"""
-
-    ft: List[FromTo] = []
+    ft: List[FromTo[Path, str]] = []
     for localpath in localpaths:
-        if not exists(localpath):
+        localpath = Path(localpath).resolve()
+        if not localpath.exists():
             continue
 
-        if is_file(localpath):
-            remotepath = to_remotepath(os.path.basename(localpath), remotedir)
-            ft.append(FromTo(localpath, remotepath))
+        if localpath.is_file():
+            remotepath = Path(remotedir, localpath.name).as_posix()
+            ft.append((localpath, remotepath))
         else:
-            parents_num = max(len(Path(localpath).parts) - 1, 0)
-            for sub_path in walk(localpath):
-                relative_path = Path(*Path(sub_path).parts[parents_num:]).as_posix()
-                remotepath = to_remotepath(relative_path, remotedir)
-                ft.append(FromTo(sub_path, remotepath))
+            parent_num = len(localpath.parent.parts)
+            for root, _, filenames in os.walk(localpath):
+                for filename in filenames:
+                    sub_path = Path(root, filename)
+                    relative_path = Path(*Path(root).parts[parent_num:], filename).as_posix()
+                    remotepath = Path(remotedir, relative_path).as_posix()
+                    ft.append((sub_path, remotepath))
     return ft
 
 
-class UploadType(Enum):
-    """Upload Type
-
-    One: Upload the slices of one file concurrently
-    Many: Upload files concurrently
-    """
-
-    One = 1
-    Many = 2
-
-
-# remotedir must be a directory
 def upload(
     api: AliPCSApi,
-    from_to_list: List[FromTo],
-    upload_type: UploadType = UploadType.One,
-    check_name_mode: CheckNameMode = "auto_rename",
+    from_to_list: List[FromTo[PathType, str]],
+    check_name_mode: CheckNameMode = "overwrite",
     encrypt_password: bytes = b"",
     encrypt_type: EncryptType = EncryptType.No,
     max_workers: int = CPU_NUM,
-    slice_size: int = DEFAULT_SLICE_SIZE,
-    show_progress: bool = True,
-    rapiduploadinfo_file: Optional[str] = None,
-    user_id: Optional[str] = None,
-    user_name: Optional[str] = None,
-):
-    """Upload from_tos
+    max_retries: int = 3,
+    slice_size: Union[str, int] = DEFAULT_SLICE_SIZE,
+    only_use_rapid_upload: bool = False,
+    show_progress: bool = False,
+) -> None:
+    r"""Upload files in `from_to_list` to Alipan Drive
+
+    Use a `ThreadPoolExecutor` to upload files concurrently.
+
+    Raise exception if any error occurs.
 
     Args:
-        upload_type (UploadType): the way of uploading.
-        max_workers (int): The number of concurrent workers.
-        slice_size (int): The size of slice for uploading slices.
-        ignore_existing (bool): Ignoring these localpath which of remotepath exist.
-        show_progress (bool): Show uploading progress.
-        check_name_mode(str):
-          'overwrite' (直接覆盖，以后多版本有用)
-          'auto_rename' (自动换一个随机名称)
-          'refuse' (不会创建，告诉你已经存在)
-          'ignore' (会创建重名的)
+        api (AliPCSApi): AliPCSApi instance.
+        from_to_list (List[FromTo[PathType, str]]): List of FromTo instances which decide the local path needed to upload and the remote path to upload to.
+        check_name_mode (CheckNameMode, optional): CheckNameMode. Defaults to "overwrite".
+        encrypt_password (bytes, optional): Encrypt password. Defaults to b"".
+        encrypt_type (EncryptType, optional): Encrypt type. Defaults to EncryptType.No.
+        max_workers (int, optional): Max workers. Defaults to the number of CPUs.
+        max_retries (int, optional): Max retries. Defaults to 3.
+        slice_size (Union[str, int], optional): Slice size. Defaults to DEFAULT_SLICE_SIZE.
+        only_use_rapid_upload (bool, optional): Only use rapid upload. If rapid upload fails, raise exception. Defaults to False.
+        show_progress (bool, optional): Show progress. Defaults to False.
+
+    Examples:
+    - Upload one file to one remote directory
+
+        ```python
+        >>> from alipcs_py.alipcs import AliPCSApi
+        >>> from alipcs_py.commands.upload import upload, from_tos
+        >>> api = AliPCSApi(...)
+        >>> remotedir = "/remote/dir"
+        >>> localpath = "/local/file"
+        >>> from_to_list = from_tos([localpath], remotedir)
+        >>> upload(api, from_to_list)
+        ```
+
+    - Upload multiple files and directories recursively to one remote directory
+
+        ```python
+        >>> from alipcs_py.alipcs import AliPCSApi
+        >>> from alipcs_py.commands.upload import upload, from_tos
+        >>> api = AliPCSApi(...)
+        >>> remotedir = "/remote/dir"
+        >>> target_paths = ['/local/file1', '/local/file2', '/local/dir1', '/local/dir2']
+        >>> from_to_list = from_tos(target_paths, remotedir)
+        >>> upload(api, from_to_list)
+        ```
     """
 
     logger.debug(
-        "======== Uploading start ========\n-> UploadType: %s\n-> Size of from_to_list: %s",
-        upload_type,
+        "======== Uploading start ========\n-> Size of from_to_list: %s",
         len(from_to_list),
     )
 
-    global _rapiduploadinfo_file
-    if _rapiduploadinfo_file is None:
-        _rapiduploadinfo_file = rapiduploadinfo_file
+    futures = []
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        for idx, from_to in enumerate(from_to_list):
+            task_id = None
+            if show_progress:
+                task_id = _progress.add_task("upload", start=False, title=from_to[0])
 
-    if upload_type == UploadType.One:
-        upload_one_by_one(
-            api,
-            from_to_list,
-            check_name_mode,
-            max_workers=max_workers,
-            encrypt_password=encrypt_password,
-            encrypt_type=encrypt_type,
-            slice_size=slice_size,
-            show_progress=show_progress,
-            user_id=user_id,
-            user_name=user_name,
-        )
-    elif upload_type == UploadType.Many:
-        upload_many(
-            api,
-            from_to_list,
-            check_name_mode,
-            max_workers=max_workers,
-            encrypt_password=encrypt_password,
-            encrypt_type=encrypt_type,
-            slice_size=slice_size,
-            show_progress=show_progress,
-            user_id=user_id,
-            user_name=user_name,
-        )
+            logger.debug("`upload_many`: Upload: index: %s, task_id: %s", idx, task_id)
+
+            retry_upload_file = retry(
+                max_retries,
+                except_callback=lambda err, fail_count: logger.warning(
+                    "`upload_file`: fails: error: %s, fail_count: %s",
+                    err,
+                    fail_count,
+                    exc_info=err,
+                ),
+            )(upload_file)
+
+            fut = executor.submit(
+                retry_upload_file,
+                api,
+                from_to,
+                check_name_mode,
+                encrypt_password=encrypt_password,
+                encrypt_type=encrypt_type,
+                slice_size=slice_size,
+                only_use_rapid_upload=only_use_rapid_upload,
+                task_id=task_id,
+            )
+            futures.append(fut)
+
+    # Wait for all futures done
+    for fut in as_completed(futures):
+        # Raise the exception if the result of the future is an exception
+        fut.result()
 
 
 def _need_to_upload(api: AliPCSApi, remotepath: str, check_name_mode: CheckNameMode) -> bool:
@@ -197,19 +194,15 @@ def _need_to_upload(api: AliPCSApi, remotepath: str, check_name_mode: CheckNameM
     If `check_name_mode` is `refuse` and the `remotepath` exists, then it does not need to be uploaded.
     """
 
-    try:
-        pcs_file = api.path(remotepath)
-        if pcs_file and check_name_mode == "refuse":
-            print(f"`{remotepath}` already exists.")
-            logger.debug("`_init_encrypt_io`: remote file already exists")
-            return False
-        return True
-    except Exception as err:
-        raise err
+    pcs_file = api.get_file(remotepath=remotepath)
+    if pcs_file is not None and check_name_mode == "refuse":
+        logger.debug("`_init_encrypt_io`: remote file already exists")
+        return False
+    return True
 
 
 def _init_encrypt_io(
-    localpath: str,
+    localpath: PathType,
     encrypt_password: bytes = b"",
     encrypt_type: EncryptType = EncryptType.No,
 ) -> Tuple[IO, int, int, int]:
@@ -234,7 +227,7 @@ def _init_encrypt_io(
 
 def _rapid_upload(
     api: AliPCSApi,
-    localpath: str,
+    localpath: PathType,
     filename: str,
     dest_file_id: str,
     content_hash: str,
@@ -261,333 +254,80 @@ def _rapid_upload(
     except AliPCSError as err:
         logger.warning("`_can_rapid_upload`: rapid_upload fails")
 
-        if err.error_code != 31079:  # 31079: '未找到文件MD5，请使用上传API上传整个文件。'
-            remove_progress_task(task_id)
+        reset_progress_task(task_id)
+        if err.error_code == 31079:  # 31079: '未找到文件MD5，请使用上传API上传整个文件。'
+            logger.debug("`_can_rapid_upload`: %s, no exist in remote", localpath)
+            return False
+        else:
             logger.warning("`_can_rapid_upload`: unknown error: %s", err)
             raise err
-        else:
-            reset_progress_task(task_id)
-            logger.debug("`_can_rapid_upload`: %s, no exist in remote", localpath)
-
-        return False
-
-
-def upload_one_by_one(
-    api: AliPCSApi,
-    from_to_list: List[FromTo],
-    check_name_mode: CheckNameMode,
-    max_workers: int = CPU_NUM,
-    encrypt_password: bytes = b"",
-    encrypt_type: EncryptType = EncryptType.No,
-    slice_size: int = DEFAULT_SLICE_SIZE,
-    show_progress: bool = True,
-    user_id: Optional[str] = None,
-    user_name: Optional[str] = None,
-):
-    """Upload files one by one with uploading the slices concurrently"""
-
-    for from_to in from_to_list:
-        task_id = None
-        if show_progress:
-            task_id = _progress.add_task("upload", start=False, title=from_to.from_)
-        upload_file_concurrently(
-            api,
-            from_to,
-            check_name_mode,
-            max_workers=max_workers,
-            encrypt_password=encrypt_password,
-            encrypt_type=encrypt_type,
-            slice_size=slice_size,
-            task_id=task_id,
-            user_id=user_id,
-            user_name=user_name,
-        )
-
-    logger.debug("======== Uploading end ========")
-
-
-@retry(
-    -1,
-    except_callback=lambda err, fail_count: logger.warning(
-        "`upload_file_concurrently`: fails: error: %s, fail_count: %s",
-        err,
-        fail_count,
-        exc_info=err,
-    ),
-)
-def upload_file_concurrently(
-    api: AliPCSApi,
-    from_to: FromTo,
-    check_name_mode: CheckNameMode,
-    max_workers: int = CPU_NUM,
-    encrypt_password: bytes = b"",
-    encrypt_type: EncryptType = EncryptType.No,
-    slice_size: int = DEFAULT_SLICE_SIZE,
-    task_id: Optional[TaskID] = None,
-    user_id: Optional[str] = None,
-    user_name: Optional[str] = None,
-):
-    """Uploading one file by uploading it's slices concurrently"""
-
-    localpath, remotepath = from_to
-
-    remotedir = posix_path_dirname(remotepath)
-    dest_dir = api.makedir_path(remotedir)
-    dest_file_id = dest_dir.file_id
-
-    filename = posix_path_basename(remotepath)
-
-    if not _need_to_upload(api, remotepath, check_name_mode):
-        remove_progress_task(task_id)
-        return
-
-    info = _init_encrypt_io(localpath, encrypt_password=encrypt_password, encrypt_type=encrypt_type)
-    encrypt_io, encrypt_io_len, local_ctime, local_mtime = info
-    slice_size = adjust_slice_size(slice_size, encrypt_io_len)
-    part_number = math.ceil(encrypt_io_len / slice_size)
-
-    # Progress bar
-    if task_id is not None and progress_task_exists(task_id):
-        _progress.update(task_id, total=encrypt_io_len)
-        _progress.start_task(task_id)
-
-    slice_completed = 0
-    slice_completeds = {}  # current i-th index slice completed size
-
-    def callback_for_slice(upload_url: str, monitor: MultipartEncoderMonitor):
-        if task_id is not None and progress_task_exists(task_id):
-            slice_completeds[upload_url] = monitor.bytes_read
-            current_compledted: int = sum(list(slice_completeds.values()))
-            _progress.update(task_id, completed=slice_completed + current_compledted)
-
-    slice1k_hash = ""
-    content_hash = ""
-
-    pcs_prepared_file = None
-    if encrypt_type == EncryptType.No and encrypt_io_len >= 1 * constant.OneK:
-        # Rapid Upload
-
-        slice1k_bytes = encrypt_io.read(constant.OneK)
-        reset_encrypt_io(encrypt_io)
-        slice1k_hash = calc_sha1(slice1k_bytes)
-
-        pcs_prepared_file = api.prepare_file(
-            filename,
-            dest_file_id,
-            encrypt_io_len,
-            slice1k_hash,
-            part_number=part_number,
-            check_name_mode=check_name_mode,
-        )
-        if pcs_prepared_file.can_rapid_upload():
-            content_hash = calc_sha1(encrypt_io)
-            proof_code = calc_proof_code(encrypt_io, encrypt_io_len, api.access_token)
-
-            # Rapid upload
-            _rapid_upload(
-                api,
-                localpath,
-                filename,
-                dest_file_id,
-                content_hash,
-                proof_code,
-                encrypt_io_len,
-                check_name_mode=check_name_mode,
-                task_id=task_id,
-            )
-            return
-
-    try:
-        # Upload file slice
-        logger.debug("`upload_file_concurrently`: upload_slice starts")
-
-        if not pcs_prepared_file:
-            pcs_prepared_file = api.create_file(
-                filename,
-                dest_file_id,
-                encrypt_io_len,
-                part_number=part_number,
-                check_name_mode=check_name_mode,
-            )
-
-        reset_encrypt_io(encrypt_io)
-
-        def _upload_slice(item):
-            if not item:
-                return
-
-            io, upload_url = item
-
-            # Retry upload until success
-            retry(
-                -1,
-                except_callback=lambda err, fail_count: (
-                    io.seek(0, 0),
-                    logger.warning(
-                        "`upload_file_concurrently`: error: %s, fail_count: %s",
-                        err,
-                        fail_count,
-                        exc_info=err,
-                    ),
-                    _wait_start(),
-                ),
-            )(api.upload_slice)(
-                io,
-                upload_url,
-                callback=functools.partial(callback_for_slice, upload_url),
-            )
-
-            slice_completeds.pop(upload_url)
-
-            nonlocal slice_completed
-            slice_completed += total_len(io)
-
-        semaphore = Semaphore(max_workers)
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futs = []
-            i = 0
-            for upload_url in pcs_prepared_file.upload_urls():
-                semaphore.acquire()
-
-                size = min(slice_size, encrypt_io_len - i)
-                if size == 0:
-                    break
-
-                data = encrypt_io.read(size)
-                io = BytesIO(data or b"")
-
-                fut = executor.submit(sure_release, semaphore, _upload_slice, (io, upload_url))
-                futs.append(fut)
-
-                i += size
-
-            as_completed(futs)
-
-        file_id = pcs_prepared_file.file_id
-        upload_id = pcs_prepared_file.upload_id
-        assert file_id and upload_id
-        api.upload_complete(file_id, upload_id)
-
-        remove_progress_task(task_id)
-
-        logger.debug(
-            "`upload_file_concurrently`: upload_slice and combine_slices success, task_id: %s",
-            task_id,
-        )
-    except Exception as err:
-        logger.warning("`upload_file_concurrently`: error: %s", err)
-        raise err
-    finally:
-        encrypt_io.close()
-        reset_progress_task(task_id)
-
-
-def upload_many(
-    api: AliPCSApi,
-    from_to_list: List[FromTo],
-    check_name_mode: CheckNameMode = "overwrite",
-    encrypt_password: bytes = b"",
-    encrypt_type: EncryptType = EncryptType.No,
-    max_workers: int = CPU_NUM,
-    slice_size: int = DEFAULT_SLICE_SIZE,
-    show_progress: bool = True,
-    rapiduploadinfo_file: Optional[str] = None,
-    user_id: Optional[str] = None,
-    user_name: Optional[str] = None,
-):
-    """Upload files concurrently that one file is with one connection"""
-
-    excepts = {}
-    semaphore = Semaphore(max_workers)
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futs = {}
-        for idx, from_to in enumerate(from_to_list):
-            semaphore.acquire()
-            task_id = None
-            if show_progress:
-                task_id = _progress.add_task("upload", start=False, title=from_to.from_)
-
-            logger.debug("`upload_many`: Upload: index: %s, task_id: %s", idx, task_id)
-
-            retry_upload_file = retry(
-                -1,
-                except_callback=lambda err, fail_count: logger.warning(
-                    "`upload_file`: fails: error: %s, fail_count: %s",
-                    err,
-                    fail_count,
-                    exc_info=err,
-                ),
-            )(upload_file)
-
-            fut = executor.submit(
-                sure_release,
-                semaphore,
-                retry_upload_file,
-                api,
-                from_to,
-                check_name_mode,
-                encrypt_password=encrypt_password,
-                encrypt_type=encrypt_type,
-                slice_size=slice_size,
-                task_id=task_id,
-                user_id=user_id,
-                user_name=user_name,
-            )
-            futs[fut] = from_to
-
-        for fut in as_completed(futs):
-            e = fut.exception()
-            if e is not None:
-                from_to = futs[fut]
-                excepts[from_to] = e
-
-    logger.debug("======== Uploading end ========")
-
-    # Summary
-    if excepts:
-        table = Table(title="Upload Error", box=SIMPLE, show_edge=False)
-        table.add_column("From", justify="left", overflow="fold")
-        table.add_column("To", justify="left", overflow="fold")
-        table.add_column("Error", justify="left")
-
-        for from_to, e in sorted(excepts.items()):
-            table.add_row(from_to.from_, Text(str(e), style="red"))
-
-        _progress.console.print(table)
 
 
 def upload_file(
     api: AliPCSApi,
-    from_to: FromTo,
+    from_to: FromTo[PathType, str],
     check_name_mode: CheckNameMode,
     encrypt_password: bytes = b"",
     encrypt_type: EncryptType = EncryptType.No,
-    slice_size: int = DEFAULT_SLICE_SIZE,
+    slice_size: Union[str, int] = DEFAULT_SLICE_SIZE,
+    only_use_rapid_upload: bool = False,
     task_id: Optional[TaskID] = None,
-    user_id: Optional[str] = None,
-    user_name: Optional[str] = None,
     callback_for_monitor: Optional[Callable[[MultipartEncoderMonitor], None]] = None,
-):
-    """Upload one file with one connection"""
+) -> None:
+    """Upload a file from `from_to[0]` to `from_to[1]`
+
+    First try to rapid upload, if failed, then upload file's slices.
+
+    Raise exception if any error occurs.
+
+    Args:
+        api (AliPCSApi): AliPCSApi instance
+        from_to (FromTo[PathType, str]): FromTo instance decides the local path needed to upload and the remote path to upload to.
+        check_name_mode (CheckNameMode): CheckNameMode
+        encrypt_password (bytes, optional): Encrypt password. Defaults to b"".
+        encrypt_type (EncryptType, optional): Encrypt type. Defaults to EncryptType.No.
+        slice_size (Union[str, int], optional): Slice size. Defaults to DEFAULT_SLICE_SIZE.
+        only_use_rapid_upload (bool, optional): Only use rapid upload. If rapid upload fails, raise exception. Defaults to False.
+        task_id (Optional[TaskID], optional): Task ID. Defaults to None.
+        callback_for_monitor (Optional[Callable[[MultipartEncoderMonitor], None]], optional): Callback for progress monitor. Defaults to None.
+
+    Examples:
+    - Upload one file to one remote directory
+
+        ```python
+        >>> from alipcs_py.alipcs import AliPCSApi
+        >>> from alipcs_py.commands.upload import upload, from_tos
+        >>> api = AliPCSApi(...)
+        >>> remotedir = "/remote/dir"
+        >>> localpath = "/local/file"
+        >>> from_to = (localpath, remotedir)
+        >>> upload_file(api, from_to)
+    """
 
     _wait_start()
 
     localpath, remotepath = from_to
 
     remotedir = posix_path_dirname(remotepath)
-    dest_dir = api.path(remotedir)
+    dest_dir = api.get_file(remotepath=remotedir)
     if dest_dir is None:
-        dest_dir = api.makedir_path(remotedir)
+        dest_dir = api.makedir_path(remotedir)[0]
+    else:
+        assert dest_dir.is_dir, f"`{remotedir}` is not a directory"
     dest_file_id = dest_dir.file_id
 
     filename = posix_path_basename(remotepath)
 
     if not _need_to_upload(api, remotepath, check_name_mode):
+        if task_id is not None:
+            print(f"`{remotepath}` already exists.")
         remove_progress_task(task_id)
         return
 
     info = _init_encrypt_io(localpath, encrypt_password=encrypt_password, encrypt_type=encrypt_type)
     encrypt_io, encrypt_io_len, local_ctime, local_mtime = info
+    if isinstance(slice_size, str):
+        slice_size = human_size_to_int(slice_size)
     slice_size = adjust_slice_size(slice_size, encrypt_io_len)
     part_number = math.ceil(encrypt_io_len / slice_size)
 
@@ -602,45 +342,56 @@ def upload_file(
         if task_id is not None and progress_task_exists(task_id):
             _progress.update(task_id, completed=slice_completed + monitor.bytes_read)
 
-    slice1k_hash = ""
-    content_hash = ""
+    # Rapid Upload
+    try:
+        slice1k_hash = ""
+        content_hash = ""
+        pcs_prepared_file = None
+        if encrypt_type == EncryptType.No and encrypt_io_len >= 1 * constant.OneK:
+            slice1k_bytes = encrypt_io.read(constant.OneK)
+            reset_encrypt_io(encrypt_io)
+            slice1k_hash = calc_sha1(slice1k_bytes)
 
-    pcs_prepared_file = None
-    if encrypt_type == EncryptType.No and encrypt_io_len >= 1 * constant.OneK:
-        # Rapid Upload
-
-        slice1k_bytes = encrypt_io.read(constant.OneK)
-        reset_encrypt_io(encrypt_io)
-        slice1k_hash = calc_sha1(slice1k_bytes)
-
-        pcs_prepared_file = api.prepare_file(
-            filename,
-            dest_file_id,
-            encrypt_io_len,
-            slice1k_hash,
-            part_number=part_number,
-            check_name_mode=check_name_mode,
-        )
-        if pcs_prepared_file.can_rapid_upload():
-            content_hash = calc_sha1(encrypt_io)
-            proof_code = calc_proof_code(encrypt_io, encrypt_io_len, api.access_token)
-
-            # Rapid upload
-            _rapid_upload(
-                api,
-                localpath,
+            pcs_prepared_file = api.prepare_file(
                 filename,
                 dest_file_id,
-                content_hash,
-                proof_code,
                 encrypt_io_len,
+                slice1k_hash,
+                part_number=part_number,
                 check_name_mode=check_name_mode,
-                task_id=task_id,
             )
-            return
+            if pcs_prepared_file.can_rapid_upload():
+                content_hash = calc_sha1(encrypt_io)
+                proof_code = calc_proof_code(encrypt_io, encrypt_io_len, api.access_token)
 
+                # Rapid upload
+                ok = _rapid_upload(
+                    api,
+                    localpath,
+                    filename,
+                    dest_file_id,
+                    content_hash,
+                    proof_code,
+                    encrypt_io_len,
+                    check_name_mode=check_name_mode,
+                    task_id=task_id,
+                )
+                if ok:
+                    return
+    except Exception as origin_err:
+        msg = f'Rapid upload "{localpath}" to "{remotepath}" failed. error: {origin_err}'
+        logger.debug(msg)
+        err = RapidUploadError(msg, localpath=localpath, remotepath=remotepath)
+        raise err from origin_err
+
+    if only_use_rapid_upload:
+        msg = f'Only use rapid upload but rapid upload failed. localpath: "{localpath}", remotepath: "{remotepath}"'
+        logger.debug(msg)
+        err = RapidUploadError(msg, localpath=localpath, remotepath=remotepath)
+        raise err
+
+    # Upload file slice
     try:
-        # Upload file slice
         logger.debug("`upload_file`: upload_slice starts")
 
         if not pcs_prepared_file:
@@ -696,14 +447,14 @@ def upload_file(
                     )
                     slice_idx += 1
                     break
-                except Exception as err:
+                except Exception as origin_err:
                     fail_count += 1
                     io.seek(0, 0)
-                    logger.warning(
-                        "`upload_file`: `upload_slice`: error: %s, fail_count: %s",
-                        err,
+                    logger.debug(
+                        "Upload slice failed. error: %s, fail_count: %s",
+                        origin_err,
                         fail_count,
-                        exc_info=err,
+                        exc_info=origin_err,
                     )
                     _wait_start()
 
@@ -729,9 +480,11 @@ def upload_file(
             "`upload_file`: upload_slice and combine_slices success, task_id: %s",
             task_id,
         )
-    except Exception as err:
-        logger.warning("`upload_file`: error: %s", err)
-        raise err
+    except Exception as origin_err:
+        msg = f'Upload "{localpath}" to "{remotepath}" failed. error: {origin_err}'
+        logger.debug(msg)
+        err = UploadError(msg, localpath=localpath, remotepath=remotepath)
+        raise err from origin_err
     finally:
         encrypt_io.close()
         reset_progress_task(task_id)
