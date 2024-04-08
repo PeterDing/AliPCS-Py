@@ -1017,7 +1017,7 @@ class RangeRequestIO(IO):
         url: str,
         headers: Optional[Dict[str, str]] = None,
         max_chunk_size: int = DEFAULT_MAX_CHUNK_SIZE,
-        callback: Callable[..., None] = None,
+        callback: Optional[Callable[..., None]] = None,
         encrypt_password: bytes = b"",
         **kwargs,
     ):
@@ -1095,6 +1095,9 @@ class RangeRequestIO(IO):
 
     def tell(self) -> int:
         return self._offset
+
+    def readable(self) -> bool:
+        return True
 
     def seekable(self) -> bool:
         return self._auto_decrypt_request.rangeable()
