@@ -88,9 +88,9 @@ _LOCK = threading.Lock()
 
 
 class AliPCS:
-    """Aliyun Drive Personal Cloud Service Raw API
+    """Alipan Drive Personal Cloud Service Raw API
 
-    The core class is used to interact with Aliyun Drive Personal Cloud Service.
+    The core class is used to interact with Alipan Drive Personal Cloud Service.
     It provides the basic operations of the service and handles the raw requests and responses.
 
     An `AliPCSError` error will be raised if the code of the response occurs.
@@ -1160,9 +1160,9 @@ class OpenPcsNode(Enum):
 
 
 class AliOpenPCS:
-    """Aliyun Drive Personal Cloud Service Raw Open API
+    """Alipan Drive Personal Cloud Service Raw Open API
 
-    The core class is used to interact with Aliyun Drive Personal Cloud Service with open apis.
+    The core class is used to interact with Alipan Drive Personal Cloud Service with open apis.
     It provides the basic operations of the service and handles the raw requests and responses.
 
     An `AliPCSError` error will be raised if the code of the response occurs.
