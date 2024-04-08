@@ -47,13 +47,12 @@ from alipcs_py.commands.search import search as _search
 from alipcs_py.commands.download import (
     download as _download,
     Downloader,
-    DownloadParams,
     DEFAULT_DOWNLOADER,
     DEFAULT_CONCURRENCY,
     DEFAULT_CHUNK_SIZE,
 )
 from alipcs_py.commands.play import play as _play, Player, DEFAULT_PLAYER
-from alipcs_py.commands.upload import upload as _upload, from_tos, CPU_NUM, UploadType
+from alipcs_py.commands.upload import upload as _upload, from_tos, CPU_NUM
 from alipcs_py.commands.sync import sync as _sync
 from alipcs_py.commands import share as _share
 from alipcs_py.commands.server import start_server
@@ -328,7 +327,7 @@ class AliasedGroup(click.Group):
         return click.Group.get_command(self, ctx, normal_cmd_name)
 
     def list_commands(self, ctx):
-        return self.commands
+        return list(self.commands)
 
 
 _APP_DOC = f"""AliPCS App v{__version__}
@@ -1047,7 +1046,9 @@ def download(
             recursive=recursive,
             from_index=from_index,
             downloader=getattr(Downloader, downloader),
-            downloadparams=DownloadParams(concurrency=concurrency, chunk_size=chunk_size, quiet=quiet),
+            concurrency=concurrency,
+            chunk_size=chunk_size,
+            show_progress=not quiet,
             out_cmd=out_cmd,
             encrypt_password=encrypt_password,
         )
@@ -1063,7 +1064,9 @@ def download(
             recursive=recursive,
             from_index=from_index,
             downloader=getattr(Downloader, downloader),
-            downloadparams=DownloadParams(concurrency=concurrency, chunk_size=chunk_size, quiet=quiet),
+            concurrency=concurrency,
+            chunk_size=chunk_size,
+            show_progress=not quiet,
             out_cmd=out_cmd,
             encrypt_password=encrypt_password,
         )
@@ -1142,6 +1145,7 @@ def play(
         sifters.append(ExcludeSifter(exclude_regex, regex=True))
 
     local_server = ""
+    ps = None
     if use_local_server:
         if share_id or file_id:
             assert ValueError("Recently local server can't play others shared items and using `file_id`")
@@ -1210,24 +1214,13 @@ def play(
             local_server=local_server,
         )
 
-    if use_local_server:
+    if use_local_server and ps is not None:
         ps.terminate()
 
 
 @app.command()
 @click.argument("localpaths", nargs=-1, type=str)
 @click.argument("remotedir", nargs=1, type=str)
-@click.option(
-    "--upload-type",
-    "-t",
-    type=click.Choice([t.name for t in UploadType]),
-    default=UploadType.Many.name,
-    help=(
-        "上传方式，Many: 同时上传多个文件，"
-        "One: 一次只上传一个文件，但同时上传文件的多个分片 "
-        "(阿里网盘不支持单文件并发上传。`upload --upload-type One` 失效)"
-    ),
-)
 @click.option("--encrypt-password", "--ep", type=str, default=None, help="加密密码，默认使用用户设置的")
 @click.option(
     "--encrypt-type",
@@ -1247,7 +1240,6 @@ def upload(
     ctx,
     localpaths,
     remotedir,
-    upload_type,
     encrypt_password,
     encrypt_type,
     max_workers,
@@ -1255,9 +1247,6 @@ def upload(
     no_show_progress,
 ):
     """上传文件"""
-
-    if upload_type == UploadType.One.name:
-        raise ValueError("阿里网盘不支持单文件并发上传。`upload --upload-type One` 失效")
 
     # Keyboard listener start
     keyboard_listener_start()
@@ -1283,7 +1272,6 @@ def upload(
     _upload(
         api,
         from_to_list,
-        upload_type=getattr(UploadType, upload_type),
         check_name_mode=check_name_mode,
         encrypt_password=encrypt_password,
         encrypt_type=getattr(EncryptType, encrypt_type),
@@ -1637,8 +1625,8 @@ def cleanstore(ctx):
         print("App configuration `[share] store is false`. So the command does not work")
         return
 
-    api: AliPCSApiMixWithSharedStore = _recent_api(ctx)
-    if not api:
+    api = _recent_api(ctx)
+    if not isinstance(api, AliPCSApiMixWithSharedStore):
         return
 
     store = api.sharedstore
