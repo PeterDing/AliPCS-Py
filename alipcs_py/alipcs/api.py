@@ -1,9 +1,10 @@
-from typing import Optional, List, Tuple, Dict, Union, DefaultDict, Iterable, Iterator, Callable, IO
+from typing import Optional, List, Tuple, Dict, Union, DefaultDict, Iterable, Callable, IO
 from threading import Lock
 from collections import defaultdict
 from copy import deepcopy
 from functools import partial
 import logging
+import warnings
 
 from alipcs_py.alipcs.errors import AliPCSError
 from alipcs_py.common.io import RangeRequestIO, DEFAULT_MAX_CHUNK_SIZE
@@ -20,10 +21,28 @@ _ALI_PCS_API_LOCK = Lock()
 
 
 class AliPCSApi:
-    """Aliyundrive PCS Api
+    """Alipan Drive Personal Cloud Service API
 
-    This is the wrapper of `AliPCS`. It parses the content of response of raw
-    AliPCS requests to some inner data structions.
+    This is the wrapper of `AliPCS` class. It parses the raw content of response of
+    AliPCS request into the inner data structions.
+
+    Args:
+        refresh_token (str): The refresh token of the user.
+        access_token (str, optional): The access token of the user.
+        token_type (str): The token type. Default is "Bearer".
+        expire_time (int, optional): The expire time of the token.
+        user_id (str, optional): The user id of the user.
+        user_name (str, optional): The user name of the user.
+        nick_name (str, optional): The nick name of the user.
+        device_id (str, optional): The device id of the user.
+        default_drive_id (str, optional): The default drive id of the user.
+        role (str, optional): The role of the user.
+        status (str, optional): The status of the user.
+        error_max_retries (int): The max retries when a client request error occurs. Default is 2.
+        max_keepalive_connections (int): The max keepalive connections. Default is 50.
+        max_connections (int): The max number of connections in the pool. Default is 50.
+        keepalive_expiry (float): The keepalive expiry. Default is 10 * 60 seconds.
+        connection_max_retries (int): The max retries when a connection error occurs. Default is 2.
     """
 
     def __init__(
@@ -39,6 +58,11 @@ class AliPCSApi:
         default_drive_id: str = "",
         role: str = "",
         status: str = "",
+        error_max_retries: int = 2,
+        max_keepalive_connections: int = 50,
+        max_connections: int = 50,
+        keepalive_expiry: float = 10 * 60,
+        connection_max_retries: int = 2,
     ):
         self._alipcs = AliPCS(
             refresh_token,
@@ -52,6 +76,11 @@ class AliPCSApi:
             default_drive_id=default_drive_id,
             role=role,
             status=status,
+            error_max_retries=error_max_retries,
+            max_keepalive_connections=max_keepalive_connections,
+            max_connections=max_connections,
+            keepalive_expiry=keepalive_expiry,
+            connection_max_retries=connection_max_retries,
         )
 
         # The path tree is for user's own files
@@ -104,42 +133,124 @@ class AliPCSApi:
     def status(self) -> str:
         return self._alipcs.status
 
-    def meta(self, *file_ids: str, share_id: str = None) -> List[PcsFile]:
-        """Meta data of `remotepaths`"""
+    def path_traceback(self, file_id: str, share_id: Optional[str] = None) -> List[PcsFile]:
+        """Traceback the path of the file
 
-        pcs_files = [PcsFile.root() if fid == "root" else None for fid in file_ids]
-        fids = [fid for fid in file_ids if fid != "root"]
+        Return the list of all `PcsFile`s from the file to the top level directory.
 
-        if fids:
-            info = self._alipcs.meta(*fids, share_id=share_id)
-            pfs = [PcsFile.from_(v.get("body")) for v in info["responses"]]
-            j = 0
-            for i in range(len(pcs_files)):
-                if pcs_files[i] is None:
-                    pcs_files[i] = pfs[j]
-                    j += 1
+        Important:
+            The `path` property of the returned `PcsFile` has absolute path.
+        """
 
-        return [pf for pf in pcs_files if pf is not None]
+        try:
+            info = self._alipcs.path_traceback(file_id, share_id=share_id)
+        except AliPCSError as err:
+            if err.error_code == "NotFound.File":
+                return []
+            raise
+
+        pcs_files = []
+        for item_info in info["items"][::-1]:
+            pcs_file = PcsFile.from_(item_info)
+            pcs_file.path = join_path(pcs_files[-1].path if pcs_files else "/", pcs_file.name)
+            pcs_files.append(pcs_file)
+
+        pcs_files.reverse()
+        return pcs_files
+
+    def meta_by_path(self, remotepath: str) -> Optional[PcsFile]:
+        """Get the meta of the the path
+
+        Can not get the shared files' meta info by their paths.
+
+        Important:
+            The `path` property of the returned `PcsFile` is the argument `remotepath`.
+        """
+
+        assert remotepath.startswith("/"), "Path should start with '/'"
+
+        if remotepath == "/":
+            return PcsFile.root()
+
+        try:
+            info = self._alipcs.meta_by_path(remotepath)
+        except AliPCSError as err:
+            if err.error_code == "NotFound.File":
+                return None
+            raise
+
+        pcs_file = PcsFile.from_(info)
+        pcs_file.path = remotepath
+        return pcs_file
+
+    def meta(self, file_id: str, share_id: Optional[str] = None) -> Optional[PcsFile]:
+        """Get meta info of the file
+
+        Important:
+            The `path` property of the returned `PcsFile` is only the name of the file.
+        """
+
+        try:
+            info = self._alipcs.meta(file_id, share_id=share_id)
+        except AliPCSError as err:
+            if err.error_code == "NotFound.File":
+                return None
+            raise
+
+        return PcsFile.from_(info)
+
+    def get_file(
+        self, *, remotepath: str = "", file_id: str = "", share_id: Optional[str] = None
+    ) -> Optional[PcsFile]:
+        """Get the file's info by the given `remotepath` or `file_id`
+
+        If the `remotepath` is given, the `file_id` will be ignored.
+
+        Important:
+            If the `remotepath` is given, the `path` property of the returned `PcsFile` is the `remotepath`.
+            If the `file_id` is given, the `path` property of the returned `PcsFile` is only the name of the file.
+        """
+
+        if remotepath:
+            if share_id:
+                return self.path(remotepath, share_id=share_id)
+            else:
+                return self.meta_by_path(remotepath)
+        elif file_id:
+            return self.meta(file_id, share_id=share_id)
+        else:
+            raise ValueError("One of `remotepath` and `file_id` must be given")
 
     def exists(self, file_id: str) -> bool:
-        """Check whether `remotepath` exists"""
+        """Check whether the file exists
+
+        Return True if the file exists and does not in the trash else False.
+        """
 
         return self._alipcs.exists(file_id)
 
+    def exists_in_trash(self, file_id: str) -> bool:
+        """Check whether the file exists in the trash
+
+        Return True if the file exists in the trash else False.
+        """
+
+        return self._alipcs.exists_in_trash(file_id)
+
     def is_file(self, file_id: str) -> bool:
-        """Check whether `remotepath` is a file"""
+        """Check whether `file_id` is a file"""
 
         return self._alipcs.is_file(file_id)
 
     def is_dir(self, file_id: str) -> bool:
-        """Check whether `remotepath` is a directory"""
+        """Check whether `file_id` is a directory"""
 
         return self._alipcs.is_dir(file_id)
 
     def list(
         self,
         file_id: str,
-        share_id: str = None,
+        share_id: Optional[str] = None,
         desc: bool = False,
         name: bool = False,
         time: bool = False,
@@ -154,6 +265,24 @@ class AliPCSApi:
         List files and directories in the given directory (which has the `file_id`).
         The return items size is limited by the `limit` parameter. If you want to list
         more, using the returned `next_marker` parameter for next `list` call.
+
+        Args:
+            file_id (str): The directory's file id.
+            share_id (str): The share id if the file_id is in shared link.
+            desc (bool): Descending order by time.
+            name (bool): Order by name.
+            time (bool): Order by time.
+            size (bool): Order by size.
+            all (bool): Unknown, just for the request.
+            limit (int): The number of items to return.
+            url_expire_sec (int): The download url's expire time.
+            next_marker (str): The next marker for next list call.
+
+        Returns:
+            Tuple[List[PcsFile], str]: The list of `PcsFile` and the next marker.
+
+        Important:
+            These PcsFile instances' path property is only the name of the file.
         """
 
         info = self._alipcs.list(
@@ -169,12 +298,15 @@ class AliPCSApi:
             next_marker=next_marker,
         )
         next_marker = info["next_marker"]
-        return [PcsFile.from_(v) for v in info.get("items", [])], next_marker
+        pcs_files = []
+        for v in info.get("items", []):
+            pcs_files.append(PcsFile.from_(v))
+        return pcs_files, next_marker
 
     def list_iter(
         self,
         file_id: str,
-        share_id: str = None,
+        share_id: Optional[str] = None,
         desc: bool = False,
         name: bool = False,
         time: bool = False,
@@ -184,15 +316,35 @@ class AliPCSApi:
         url_expire_sec: int = 14400,
         recursive: bool = False,
         include_dir: bool = True,
-    ) -> Iterator[PcsFile]:
+    ) -> Iterable[PcsFile]:
         """Iterate the directory by its `file_id`
 
         Iterate all files and directories at the directory (which has the `file_id`).
+
+        Args:
+            file_id (str): The directory's file id.
+            share_id (str): The share id if the file_id is in shared link.
+            desc (bool): Descending order by time.
+            name (bool): Order by name.
+            time (bool): Order by time.
+            size (bool): Order by size.
+            all (bool): Unknown, just for the request.
+            limit (int): The number of one request queries.
+            url_expire_sec (int): The download url's expire time.
+            recursive (bool): Recursively iterate the directory.
+            include_dir (bool): Include directory in the result.
+
+        Returns:
+            Iterable[PcsFile]: The iterator of `PcsFile`.
+
+        Important:
+            These PcsFile instances' path property is the path from the first sub-directory of the `file_id` to the file name.
+            e.g.
+                If the directory (owned `file_id`) has path `level0/`, a sub-directory which of path is
+                `level0/level1/level2` then its corresponding PcsFile.path is `level1/level2`.
         """
 
         next_marker = ""
-        pcs_file = self.meta(file_id, share_id=share_id)[0]
-        dirname = pcs_file.name
         while True:
             pcs_files, next_marker = self.list(
                 file_id,
@@ -207,11 +359,13 @@ class AliPCSApi:
                 next_marker=next_marker,
             )
             for pf in pcs_files:
-                pf.path = join_path(dirname, pf.name)
-
-                if pf.is_dir:
+                if pf.is_file:
+                    yield pf
+                else:
                     if include_dir:
-                        yield pf
+                        # The upper recursive call will change the `pf.path`.
+                        # So, we need to deepcopy it.
+                        yield deepcopy(pf)
                     if recursive:
                         for sub_pf in self.list_iter(
                             pf.file_id,
@@ -226,95 +380,89 @@ class AliPCSApi:
                             recursive=recursive,
                             include_dir=include_dir,
                         ):
-                            sub_pf.path = join_path(dirname, sub_pf.path)
-                            yield sub_pf
-                else:
-                    yield pf
+                            sub_pf.path = join_path(pf.path, sub_pf.path)
+                            if sub_pf.is_file:
+                                yield sub_pf
+                            else:
+                                # The upper recursive call will change the `pf.path`.
+                                # So, we need to deepcopy it.
+                                yield deepcopy(sub_pf)
 
             if not next_marker:
                 return
 
-    def path(self, remotepath: str, share_id: str = None) -> Optional[PcsFile]:
-        """Get the pcs file's info by the given absolute `remotepath`"""
+    def path(self, remotepath: str, share_id: Optional[str] = None) -> Optional[PcsFile]:
+        """Get the pcs file's info by the given absolute `remotepath`
+
+        Important:
+            The `path` property of the returned `PcsFile` is the argument `remotepath`.
+        """
+
+        assert remotepath.startswith("/"), "`remotepath` should start with '/'"
 
         if share_id:
             return self._shared_path_tree[share_id].search(remotepath=remotepath, share_id=share_id)
         else:
             return self._path_tree.search(remotepath=remotepath)
 
-    def paths(self, *remotepaths: str, share_id: str = None) -> List[Optional[PcsFile]]:
-        """Get the pcs files' info by the given absolute `remotepaths`"""
+    def paths(self, *remotepaths: str, share_id: Optional[str] = None) -> List[Optional[PcsFile]]:
+        """Get the pcs files' info by the given absolute `remotepaths`
 
-        return [self.path(rp, share_id=share_id) for rp in remotepaths]
+        Important:
+            The `path` property of the returned `PcsFile` is the argument `remotepath`.
+        """
 
-    def list_path_iter(
+        return [self.path(remote_path, share_id=share_id) for remote_path in remotepaths]
+
+    def walk(
         self,
-        remotepath: str,
-        file_id: str = None,
-        share_id: str = None,
-        desc: bool = False,
-        name: bool = False,
-        time: bool = False,
-        size: bool = False,
+        file_id: str,
+        share_id: str = "",
         all: bool = False,
         limit: int = 200,
         url_expire_sec: int = 14400,
-        recursive: bool = False,
-        include_dir: bool = True,
-    ) -> Iterator[PcsFile]:
-        """Iterate the `remotepath`"""
+    ) -> Iterable[PcsFile]:
+        """Recursively Walk through the directory tree which has `file_id`
 
-        if not file_id:
-            pf = self.path(remotepath, share_id=share_id)
-            if not pf:
-                return
-            file_id = pf.file_id
+        Args:
+            file_id (str): The directory's file id.
+            share_id (str): The share id if the file_id is in shared link.
+            all (bool): Unknown, just for the request.
+            limit (int): The number of one request queries.
+            url_expire_sec (int): The download url's expire time.
+            include_dir (bool): Include directory in the result.
 
-        dirname = posix_path_dirname(remotepath)
+        Returns:
+            Iterable[PcsFile]: The iterator of `PcsFile`.
 
-        for p in self.list_iter(
-            file_id,
-            share_id=share_id,
-            desc=desc,
-            name=name,
-            time=time,
-            size=size,
-            all=all,
-            limit=limit,
-            url_expire_sec=url_expire_sec,
-            recursive=recursive,
-            include_dir=include_dir,
-        ):
-            p.path = join_path(dirname, p.path)
-            yield p
+        Important:
+            These PcsFile instances' path property is the path from the first sub-directory of the `file_id` to the file.
+            e.g.
+                If the directory (owned `file_id`) has path `level0/`, a sub-directory which of path is
+                `level0/level1/level2` then its corresponding PcsFile.path is `level1/level2`.
 
-    def list_path(
-        self,
-        remotepath: str,
-        file_id: str = None,
-        share_id: str = None,
-        desc: bool = False,
-        name: bool = False,
-        time: bool = False,
-        size: bool = False,
-        all: bool = False,
-        limit: int = 200,
-        url_expire_sec: int = 14400,
-    ) -> List[PcsFile]:
-        return list(
-            self.list_path_iter(
-                remotepath,
-                file_id=file_id,
+        """
+
+        file_id_to_path = {file_id: ""}
+        next_marker = ""
+        while True:
+            info = self._alipcs.walk(
+                file_id,
                 share_id=share_id,
-                desc=desc,
-                name=name,
-                time=time,
-                size=size,
                 all=all,
                 limit=limit,
                 url_expire_sec=url_expire_sec,
+                next_marker=next_marker,
             )
-        )
+            for v in info["items"]:
+                pcs_file = PcsFile.from_(v)
+                pcs_file.path = join_path(file_id_to_path[pcs_file.parent_file_id], pcs_file.name)
+                file_id_to_path[pcs_file.file_id] = pcs_file.path
+                yield pcs_file
+
+            next_marker = info["next_marker"]
+            if not next_marker:
+                return
 
     def create_file(
         self,
@@ -400,7 +548,9 @@ class AliPCSApi:
             filename, dir_id, size, content_hash=content_hash, proof_code=proof_code, check_name_mode=check_name_mode
         )
 
-    def upload_slice(self, io: IO, url: str, callback: Callable[[MultipartEncoderMonitor], None] = None) -> None:
+    def upload_slice(
+        self, io: IO, url: str, callback: Optional[Callable[[MultipartEncoderMonitor], None]] = None
+    ) -> None:
         """Upload an io as a slice
 
         callable: the callback for monitoring uploading progress
@@ -471,12 +621,27 @@ class AliPCSApi:
         return pcs_files
 
     def makedir(self, dir_id: str, name: str) -> PcsFile:
+        """Make a directory in the `dir_id` directory
+
+        Important:
+            The `path` property of the returned `PcsFile` is only the name of the directory.
+        """
+
         info = self._alipcs.makedir(dir_id, name)
         return PcsFile.from_(info)
 
-    def makedir_path(self, remotedir: str) -> PcsFile:
+    def makedir_path(self, remotedir: str) -> List[PcsFile]:
+        """Make a directory by the absolute `remotedir` path
+
+        Return the list of all `PcsFile`s from the directory to the top level directory.
+
+        Important:
+            The `path` property of the returned `PcsFile` has absolute path.
+        """
+
         # Use lock to ignore make a directory twice
         with _ALI_PCS_API_LOCK:
+            paths = []
             parts = split_posix_path(remotedir)
             parent = PcsFile.root()
             for i, part in enumerate(parts):
@@ -497,7 +662,10 @@ class AliPCSApi:
 
                 pf.path = now_dir
                 parent = pf
-            return parent
+                paths.append(pf)
+
+            paths.reverse()
+            return paths
 
     def move(self, *file_ids: str) -> List[bool]:
         """Move `file_ids[:-1]` to `file_ids[-1]`"""
@@ -511,6 +679,12 @@ class AliPCSApi:
         return ["code" not in v["body"] for v in info["responses"]]
 
     def rename(self, file_id: str, name: str) -> PcsFile:
+        """Rename the file with `file_id` to `name`
+
+        Important:
+            The `path` property of the returned `PcsFile` is only the name of the file.
+        """
+
         info = self._alipcs.rename(file_id, name)
 
         # Remove node from self._path_tree
@@ -519,24 +693,28 @@ class AliPCSApi:
         return PcsFile.from_(info)
 
     def copy(self, *file_ids: str) -> List[PcsFile]:
-        """Copy `remotepaths[:-1]` to `remotepaths[-1]`"""
+        """Copy `file_ids[:-1]` to `file_ids[-1]`
+
+        Important:
+            The `path` property of the returned `PcsFile` is only the name of the file.
+        """
 
         info = self._alipcs.copy(*file_ids)
         return [PcsFile.from_(v["body"]) for v in info["responses"]]
 
     def remove(self, *file_ids: str) -> List[bool]:
-        """Remove all `remotepaths`"""
+        """Remove all `file_ids`"""
 
         info = self._alipcs.remove(*file_ids)
 
         # Remove nodes from self._path_tree
-        for file_id in file_ids[:-1]:
+        for file_id in file_ids:
             self._path_tree.pop_by_file_id(file_id)
 
         return ["code" not in v for v in info["responses"]]
 
     def share(self, *file_ids: str, password: str = "", period: int = 0, description: str = "") -> PcsSharedLink:
-        """Share `remotepaths` to public with a optional password
+        """Share `file_ids` to public with a optional password
 
         Args:
             period (int): The days for expiring. `0` means no expiring
@@ -652,7 +830,7 @@ class AliPCSApi:
         self,
         file_id: str,
         max_chunk_size: int = DEFAULT_MAX_CHUNK_SIZE,
-        callback: Callable[..., None] = None,
+        callback: Optional[Callable[..., None]] = None,
         encrypt_password: bytes = b"",
     ) -> Optional[RangeRequestIO]:
         """File stream as a normal io"""
@@ -667,7 +845,7 @@ class AliPCSApi:
         share_id: str,
         expire_duration: int = 10 * 60,
         max_chunk_size: int = DEFAULT_MAX_CHUNK_SIZE,
-        callback: Callable[..., None] = None,
+        callback: Optional[Callable[..., None]] = None,
         encrypt_password: bytes = b"",
     ) -> Optional[RangeRequestIO]:
         """Shared file stream as a normal io"""
@@ -683,7 +861,7 @@ class AliPCSApi:
 
 
 class AliOpenPCSApi:
-    """Aliyundrive Open PCS Api
+    """Alipan drive PCS Open Api
 
     This is the wrapper of `AliPCS`. It parses the content of response of raw
     AliPCS requests to some inner data structions.
@@ -704,6 +882,11 @@ class AliOpenPCSApi:
         default_drive_id: str = "",
         role: str = "",
         status: str = "",
+        error_max_retries: int = 2,
+        max_keepalive_connections: int = 50,
+        max_connections: int = 50,
+        keepalive_expiry: float = 10 * 60,
+        connection_max_retries: int = 2,
     ):
         self._aliopenpcs = AliOpenPCS(
             refresh_token,
@@ -719,6 +902,11 @@ class AliOpenPCSApi:
             default_drive_id=default_drive_id,
             role=role,
             status=status,
+            error_max_retries=error_max_retries,
+            max_keepalive_connections=max_keepalive_connections,
+            max_connections=max_connections,
+            keepalive_expiry=keepalive_expiry,
+            connection_max_retries=connection_max_retries,
         )
 
         # The path tree is for user's own files
@@ -779,22 +967,13 @@ class AliOpenPCSApi:
     def status(self) -> str:
         return self._aliopenpcs.status
 
-    def meta(self, *file_ids: str, share_id: str = None) -> List[PcsFile]:
-        """Meta data of `remotepaths`"""
+    def meta(self, file_id: str, share_id: Optional[str] = None) -> Optional[PcsFile]:
+        """Get meta info of the file"""
 
-        pcs_files = [PcsFile.root() if fid == "root" else None for fid in file_ids]
-        fids = [fid for fid in file_ids if fid != "root"]
-
-        if fids:
-            info = self._aliopenpcs.meta(*fids, share_id=share_id)
-            pfs = [PcsFile.from_(v.get("body")) for v in info["responses"]]
-            j = 0
-            for i in range(len(pcs_files)):
-                if pcs_files[i] is None:
-                    pcs_files[i] = pfs[j]
-                    j += 1
-
-        return [pf for pf in pcs_files if pf is not None]
+        info = self._aliopenpcs.meta(file_id, share_id=share_id)
+        if info.get("code") == "NotFound.File":
+            return None
+        return PcsFile.from_(info)
 
     def exists(self, file_id: str) -> bool:
         """Check whether `remotepath` exists"""
@@ -814,7 +993,7 @@ class AliOpenPCSApi:
     def list(
         self,
         file_id: str,
-        share_id: str = None,
+        share_id: Optional[str] = None,
         desc: bool = False,
         name: bool = False,
         time: bool = False,
@@ -849,7 +1028,7 @@ class AliOpenPCSApi:
     def list_iter(
         self,
         file_id: str,
-        share_id: str = None,
+        share_id: Optional[str] = None,
         desc: bool = False,
         name: bool = False,
         time: bool = False,
@@ -859,14 +1038,16 @@ class AliOpenPCSApi:
         url_expire_sec: int = 14400,
         recursive: bool = False,
         include_dir: bool = True,
-    ) -> Iterator[PcsFile]:
+    ) -> Iterable[PcsFile]:
         """Iterate the directory by its `file_id`
 
         Iterate all files and directories at the directory (which has the `file_id`).
         """
 
         next_marker = ""
-        pcs_file = self.meta(file_id, share_id=share_id)[0]
+        pcs_file = self.meta(file_id, share_id=share_id)
+        if pcs_file is None:
+            return
         dirname = pcs_file.name
         while True:
             pcs_files, next_marker = self.list(
@@ -909,7 +1090,7 @@ class AliOpenPCSApi:
             if not next_marker:
                 return
 
-    def path(self, remotepath: str, share_id: str = None) -> Optional[PcsFile]:
+    def path(self, remotepath: str, share_id: Optional[str] = None) -> Optional[PcsFile]:
         """Get the pcs file's info by the given absolute `remotepath`"""
 
         if share_id:
@@ -917,16 +1098,16 @@ class AliOpenPCSApi:
         else:
             return self._path_tree.search(remotepath=remotepath)
 
-    def paths(self, *remotepaths: str, share_id: str = None) -> List[Optional[PcsFile]]:
+    def paths(self, *remotepaths: str, share_id: Optional[str] = None) -> List[Optional[PcsFile]]:
         """Get the pcs files' info by the given absolute `remotepaths`"""
 
-        return [self.path(rp, share_id=share_id) for rp in remotepaths]
+        return [self.path(remote_path, share_id=share_id) for remote_path in remotepaths]
 
     def list_path_iter(
         self,
         remotepath: str,
-        file_id: str = None,
-        share_id: str = None,
+        file_id: Optional[str] = None,
+        share_id: Optional[str] = None,
         desc: bool = False,
         name: bool = False,
         time: bool = False,
@@ -936,7 +1117,7 @@ class AliOpenPCSApi:
         url_expire_sec: int = 14400,
         recursive: bool = False,
         include_dir: bool = True,
-    ) -> Iterator[PcsFile]:
+    ) -> Iterable[PcsFile]:
         """Iterate the `remotepath`"""
 
         if not file_id:
@@ -966,8 +1147,8 @@ class AliOpenPCSApi:
     def list_path(
         self,
         remotepath: str,
-        file_id: str = None,
-        share_id: str = None,
+        file_id: Optional[str] = None,
+        share_id: Optional[str] = None,
         desc: bool = False,
         name: bool = False,
         time: bool = False,
@@ -1016,7 +1197,7 @@ class AliOpenPCSApi:
         self,
         file_id: str,
         max_chunk_size: int = DEFAULT_MAX_CHUNK_SIZE,
-        callback: Callable[..., None] = None,
+        callback: Optional[Callable[..., None]] = None,
         encrypt_password: bytes = b"",
     ) -> Optional[RangeRequestIO]:
         """File stream as a normal io"""
@@ -1027,6 +1208,43 @@ class AliOpenPCSApi:
 
 
 class AliPCSApiMix(AliPCSApi):
+    """The class mixed with `AliPCSApi` and `AliOpenPCSApi`
+
+    Only following methods are used from AliOpenPCSApi:
+        - download_link
+        - update_download_url
+        - file_stream
+    Other methods are used from AliPCSApi.
+
+    Args:
+        web_refresh_token (str): The refresh token from browser.
+        web_access_token (str, optional): The access token from browser.
+        web_token_type (str): The token type. Default is "Bearer".
+        web_expire_time (int, optional): The expire time of the token.
+
+        openapi_refresh_token (str): The refresh token from alipan openapi.
+        openapi_access_token (str, optional): The access token from alipan openai.
+        openapi_token_type (str): The token type. Default is "Bearer".
+        openapi_expire_time (int, optional): The expire time of the token.
+        client_id (str, optional): The client id of the app for openapi.
+        client_secret (str, optional): The client secret of the app for openapi.
+        client_server (str, optional): The client server of the app for openapi to access token.
+            If `client_id` and `client_secret` are provided, the `client_server` is not needed, vice versa.
+
+        user_id (str, optional): The user id of the user.
+        user_name (str, optional): The user name of the user.
+        nick_name (str, optional): The nick name of the user.
+        device_id (str, optional): The device id of the user.
+        default_drive_id (str, optional): The default drive id of the user.
+        role (str, optional): The role of the user.
+        status (str, optional): The status of the user.
+        error_max_retries (int): The max retries when a client request error occurs. Default is 2.
+        max_keepalive_connections (int): The max keepalive connections. Default is 50.
+        max_connections (int): The max number of connections in the pool. Default is 50.
+        keepalive_expiry (float): The keepalive expiry. Default is 10 * 60 seconds.
+        connection_max_retries (int): The max retries when a connection error occurs. Default is 2.
+    """
+
     def __init__(
         self,
         web_refresh_token: str,
@@ -1047,6 +1265,11 @@ class AliPCSApiMix(AliPCSApi):
         default_drive_id: str = "",
         role: str = "",
         status: str = "",
+        error_max_retries: int = 2,
+        max_keepalive_connections: int = 50,
+        max_connections: int = 50,
+        keepalive_expiry: float = 10 * 60,
+        connection_max_retries: int = 2,
     ):
         super().__init__(
             refresh_token=web_refresh_token,
@@ -1060,6 +1283,11 @@ class AliPCSApiMix(AliPCSApi):
             default_drive_id=default_drive_id,
             role=role,
             status=status,
+            error_max_retries=error_max_retries,
+            max_keepalive_connections=max_keepalive_connections,
+            max_connections=max_connections,
+            keepalive_expiry=keepalive_expiry,
+            connection_max_retries=connection_max_retries,
         )
 
         self._aliopenpcsapi: Optional[AliOpenPCSApi] = None
@@ -1078,6 +1306,11 @@ class AliPCSApiMix(AliPCSApi):
                 default_drive_id=default_drive_id,
                 role=role,
                 status=status,
+                error_max_retries=error_max_retries,
+                max_keepalive_connections=max_keepalive_connections,
+                max_connections=max_connections,
+                keepalive_expiry=keepalive_expiry,
+                connection_max_retries=connection_max_retries,
             )
 
     def download_link(self, file_id: str) -> Optional[PcsDownloadUrl]:
@@ -1105,7 +1338,7 @@ class AliPCSApiMix(AliPCSApi):
         self,
         file_id: str,
         max_chunk_size: int = DEFAULT_MAX_CHUNK_SIZE,
-        callback: Callable[..., None] = None,
+        callback: Optional[Callable[..., None]] = None,
         encrypt_password: bytes = b"",
     ) -> Optional[RangeRequestIO]:
         """File stream as a normal io"""
@@ -1194,12 +1427,11 @@ class PathTree:
     def _pop(self, file_id: str) -> Optional[_Node]:
         """Pop a node from self._file_id_to_node"""
 
-        try:
-            return self._file_id_to_node.pop(file_id)
-        except KeyError:
-            return None
+        return self._file_id_to_node.pop(file_id, None)
 
-    def search(self, remotepath: str = "", topdown: Iterable[str] = [], share_id: str = None) -> Optional[PcsFile]:
+    def search(
+        self, remotepath: str = "", topdown: Iterable[str] = [], share_id: Optional[str] = None
+    ) -> Optional[PcsFile]:
         """Search the PcsFile which has remote path as `remotepath`
         or has the tree path `topdown`
         """
@@ -1214,7 +1446,9 @@ class PathTree:
         else:
             return None
 
-    def _dfs(self, topdown: List[str], root: _Node, pull: bool = True, share_id: str = None) -> Optional[_Node]:
+    def _dfs(
+        self, topdown: List[str], root: _Node, pull: bool = True, share_id: Optional[str] = None
+    ) -> Optional[_Node]:
         """Search a node with the path `topdown` using depth first search"""
 
         if not topdown:
@@ -1253,7 +1487,7 @@ class PathTree:
         parts = list(topdown)
         dest = parts[-1]
         parent = parts[:-1]
-        assert len(parent) > 0, "NO pop root"
+        assert len(parent) > 0, "Can not pop root"
 
         node = self._dfs(list(parent), self.root, pull=False)
         if node:
