@@ -179,7 +179,7 @@ def display_from_to(*from_to_list: FromTo):
     table.add_column("To", justify="left", overflow="fold")
 
     for from_to in from_to_list:
-        table.add_row(from_to.from_, from_to.to_)
+        table.add_row(*from_to)
 
     console = Console()
     console.print(table)

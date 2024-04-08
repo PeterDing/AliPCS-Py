@@ -1,4 +1,4 @@
-from typing import List, Dict, Set
+from typing import List, Dict, Set, Union
 from pathlib import PurePosixPath
 from collections import deque
 import re
@@ -13,11 +13,11 @@ from alipcs_py.commands.display import (
     display_shared_links,
 )
 from alipcs_py.commands.download import (
+    DEFAULT_CHUNK_SIZE,
+    DEFAULT_CONCURRENCY,
     download,
     Downloader,
     DEFAULT_DOWNLOADER,
-    DownloadParams,
-    DEFAULT_DOWNLOADPARAMS,
 )
 from alipcs_py.commands.play import play, Player, DEFAULT_PLAYER
 
@@ -83,55 +83,57 @@ def save_shared_by_file_ids(
     file_ids: List[str],
     password: str = "",
 ):
+    """Save shared files to the remote directory `remotedir`. Ignore existed files."""
+
     assert share_id
 
     api.get_share_token(share_id, share_password=password)
 
     file_ids = file_ids or ["root"]
 
-    sfs = api.meta(*file_ids, share_id=share_id)
-    for sf in sfs:
-        if not sf.path:
-            sf.path = sf.name
-    shared_files = deque(sfs)
+    shared_pcs_files = deque()
+    for file_id in file_ids:
+        pf = api.get_file(file_id=file_id, share_id=share_id)
+        if pf is not None:
+            shared_pcs_files.append(pf)
 
-    # Record the remotedir of each shared_file
-    _remotedirs: Dict[str, str] = {}
-    for sp in shared_files:
-        _remotedirs[sp.file_id] = remotedir
+    # Record the remote directory of each shared_file
+    shared_file_id_to_remotedir: Dict[str, str] = {}
+    for sp in shared_pcs_files:
+        shared_file_id_to_remotedir[sp.file_id] = remotedir
 
-    # Map the remotedir to its pcs_file
-    dest_pcs_files: Dict[str, PcsFile] = {}
+    # Map the remote directory to its pcs_file
+    remotedir_to_its_pcs_file: Dict[str, PcsFile] = {}
 
-    while shared_files:
-        shared_file = shared_files.popleft()
-        rd = _remotedirs[shared_file.file_id]
+    while shared_pcs_files:
+        shared_file = shared_pcs_files.popleft()
+        remote_dir = shared_file_id_to_remotedir[shared_file.file_id]
 
-        # Make sure remote dir exists
-        if rd not in dest_pcs_files:
-            dest_pcs_files[rd] = api.makedir_path(rd)
-        dest_pcs_file = dest_pcs_files[rd]
+        # Make sure remote directory exists
+        if remote_dir not in remotedir_to_its_pcs_file:
+            remotedir_to_its_pcs_file[remote_dir] = api.makedir_path(remote_dir)[0]
+        dest_pcs_file = remotedir_to_its_pcs_file[remote_dir]
 
-        if not shared_file.is_root() and not remotepath_exists(api, shared_file.name, rd):
+        if not shared_file.is_root() and not remotepath_exists(api, shared_file.name, dest_pcs_file.file_id):
             api.transfer_shared_files(
                 [shared_file.file_id],
                 dest_pcs_file.file_id,
                 share_id,
                 auto_rename=False,
             )
-            print(f"save: `{shared_file.path}` to `{rd}`")
+            print(f"save: `{shared_file.path}` to `{remote_dir}`")
         else:
             # Ignore existed file
             if shared_file.is_file:
-                print(f"[yellow]WARNING[/]: `{shared_file.path}` has be in `{rd}`")
+                print(f"[yellow]WARNING[/]: `{shared_file.path}` has be in `{remote_dir}`")
                 continue
             else:  # shared_file.is_dir
-                sub_files = list(api.list_path_iter(shared_file.path, file_id=shared_file.file_id, share_id=share_id))
+                sub_files = list(api.list_iter(shared_file.file_id, share_id=share_id))
 
-                rd = (PurePosixPath(rd) / shared_file.name).as_posix()
+                remote_dir = (PurePosixPath(remote_dir) / shared_file.name).as_posix()
                 for sp in sub_files:
-                    _remotedirs[sp.file_id] = rd
-                shared_files.extendleft(sub_files[::-1])
+                    shared_file_id_to_remotedir[sp.file_id] = remote_dir
+                shared_pcs_files.extendleft(sub_files[::-1])
 
 
 def save_shared(
@@ -142,6 +144,8 @@ def save_shared(
     file_ids: List[str] = [],
     password: str = "",
 ):
+    """Save shared files of the shared url to the remote directory `remotedir`."""
+
     assert remotedir.startswith("/"), "`remotedir` must be an absolute path"
 
     assert int(bool(share_id)) ^ int(bool(share_url)), "`share_id` and `share_url` only can be given one"
@@ -175,6 +179,8 @@ def list_shared_files(
     show_absolute_path: bool = False,
     csv: bool = False,
 ):
+    """List shared files in the shared url or shared id."""
+
     assert int(bool(share_id)) ^ int(bool(share_url)), "`share_id` and `share_url` only can be given one"
 
     share_url = _redirect(share_url)
@@ -215,17 +221,19 @@ def list_shared_files(
     )
 
 
-def remotepath_exists(api: AliPCSApi, name: str, rd: str, _cache: Dict[str, Set[str]] = {}) -> bool:
-    names = _cache.get(rd)
+def remotepath_exists(api: AliPCSApi, name: str, remote_file_id: str, _cache: Dict[str, Set[str]] = {}) -> bool:
+    """Check if the `name` exists in the remote directory `remote_file_id`."""
+
+    names = _cache.get(remote_file_id)
     if not names:
-        names = set([sp.name for sp in api.list_path_iter(rd)])
-        _cache[rd] = names
+        names = set(sp.name for sp in api.list_iter(remote_file_id))
+        _cache[remote_file_id] = names
     return name in names
 
 
 def download_shared(
     api: AliPCSApi,
-    remotepaths: List[str],
+    remotepaths: List[Union[str, PcsFile]],
     file_ids: List[str],
     localdir: str,
     share_id: str = "",
@@ -235,10 +243,15 @@ def download_shared(
     recursive: bool = False,
     from_index: int = 0,
     downloader: Downloader = DEFAULT_DOWNLOADER,
-    downloadparams: DownloadParams = DEFAULT_DOWNLOADPARAMS,
+    concurrency: int = DEFAULT_CONCURRENCY,
+    chunk_size: Union[str, int] = DEFAULT_CHUNK_SIZE,
+    show_progress: bool = False,
+    max_retries: int = 2,
     out_cmd: bool = False,
     encrypt_password: bytes = b"",
 ):
+    """Download shared files in the shared url or shared id."""
+
     assert int(bool(share_id)) ^ int(bool(share_url)), "`share_id` and `share_url` only can be given one"
 
     share_url = _redirect(share_url)
@@ -266,7 +279,10 @@ def download_shared(
         recursive=recursive,
         from_index=from_index,
         downloader=downloader,
-        downloadparams=downloadparams,
+        concurrency=concurrency,
+        chunk_size=chunk_size,
+        show_progress=show_progress,
+        max_retries=max_retries,
         out_cmd=out_cmd,
         encrypt_password=encrypt_password,
     )
@@ -290,6 +306,8 @@ def play_shared(
     out_cmd: bool = False,
     local_server: str = "",
 ):
+    """Play shared files in the shared url or shared id."""
+
     assert int(bool(share_id)) ^ int(bool(share_url)), "`share_id` and `share_url` only can be given one"
 
     share_url = _redirect(share_url)
@@ -326,6 +344,8 @@ def play_shared(
 
 
 def get_share_token(api: AliPCSApi, share_id: str, share_url: str = "", password: str = "") -> str:
+    """Initiate a shared link (or id) and get the share token."""
+
     assert int(bool(share_id)) ^ int(bool(share_url)), "`share_id` and `share_url` only can be given one"
 
     share_url = _redirect(share_url)
