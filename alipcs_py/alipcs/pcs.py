@@ -12,9 +12,9 @@ from alipcs_py.common import constant
 from alipcs_py.common.io import RangeRequestIO, DEFAULT_MAX_CHUNK_SIZE, ChunkIO, total_len
 from alipcs_py.common.cache import timeout_cache
 from alipcs_py.common.crypto import generate_secp256k1_keys
-from alipcs_py.alipcs.errors import AliPCSError, parse_error, handle_error
-from alipcs_py.alipcs.errors import assert_ok
+from alipcs_py.alipcs.errors import AliPCSError, make_alipcs_error, handle_error
 from alipcs_py.alipcs.inner import SharedAuth
+from alipcs_py.common.net import make_http_session
 
 
 UPLOAD_CHUNK_SIZE = 10 * constant.OneM
@@ -25,8 +25,7 @@ ALIYUNDRIVE_COM = "https://www.aliyundrive.com"
 ALIYUNDRIVE_COM_API = "https://api.aliyundrive.com"
 ALIYUNDRIVE_OPENAPI_DOMAIN = "https://openapi.aliyundrive.com"
 
-# TODO: Update UA
-PCS_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36"
+PCS_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
 PCS_HEADERS = {"Origin": ALIYUNDRIVE_COM, "Referer": ALIYUNDRIVE_COM + "/", "User-Agent": PCS_UA}
 
 CheckNameMode = Literal[
@@ -51,6 +50,9 @@ class PcsNode(Enum):
     CreateSession = "users/v1/users/device/create_session"
 
     FileList = "adrive/v3/file/list"
+    Walk = "v2/file/walk"
+    GetPath = "adrive/v1/file/get_path"
+    MetaByPath = "v2/file/get_by_path"
     Meta = "v2/file/get"
     Search = "adrive/v3/file/search"
     DownloadUrl = "v2/file/get_download_url"
@@ -86,7 +88,31 @@ _LOCK = threading.Lock()
 
 
 class AliPCS:
-    """`AliPCS` provides pcs's apis which return raw json"""
+    """Alipan Drive Personal Cloud Service Raw API
+
+    The core class is used to interact with Alipan Drive Personal Cloud Service.
+    It provides the basic operations of the service and handles the raw requests and responses.
+
+    An `AliPCSError` error will be raised if the code of the response occurs.
+
+    Args:
+        refresh_token (str): The refresh token of the user.
+        access_token (str, optional): The access token of the user.
+        token_type (str): The token type. Default is "Bearer".
+        expire_time (int, optional): The expire time of the token.
+        user_id (str, optional): The user id of the user.
+        user_name (str, optional): The user name of the user.
+        nick_name (str, optional): The nick name of the user.
+        device_id (str, optional): The device id of the user.
+        default_drive_id (str, optional): The default drive id of the user.
+        role (str, optional): The role of the user.
+        status (str, optional): The status of the user.
+        error_max_retries (int): The max retries when a client request error occurs. Default is 2.
+        max_keepalive_connections (int): The max keepalive connections. Default is 50.
+        max_connections (int): The max number of connections in the pool. Default is 50.
+        keepalive_expiry (float): The keepalive expiry. Default is 10 * 60 seconds.
+        connection_max_retries (int): The max retries when a connection error occurs. Default is 2.
+    """
 
     SHARE_AUTHS: Dict[str, SharedAuth] = {}
 
@@ -103,8 +129,21 @@ class AliPCS:
         default_drive_id: str = "",
         role: str = "",
         status: str = "",
+        error_max_retries: int = 2,
+        max_keepalive_connections: int = 50,
+        max_connections: int = 50,
+        keepalive_expiry: float = 10 * 60,
+        connection_max_retries: int = 2,
     ):
-        self._session = requests.Session()
+        self._session = make_http_session(
+            max_keepalive_connections=max_keepalive_connections,
+            max_connections=max_connections,
+            keepalive_expiry=keepalive_expiry,
+            max_retries=connection_max_retries,
+        )
+
+        self._error_max_retries = error_max_retries
+
         self._refresh_token = refresh_token
         self._access_token = access_token
         self._token_type = token_type
@@ -244,7 +283,7 @@ class AliPCS:
             )
             return resp
         except Exception as err:
-            raise AliPCSError("AliPCS._request", cause=err)
+            raise AliPCSError("AliPCS._request") from err
 
     def refresh(self):
         """Refresh token"""
@@ -255,7 +294,7 @@ class AliPCS:
         info = resp.json()
 
         if "code" in info:
-            err = parse_error(info["code"], info=info)
+            err = make_alipcs_error(info["code"], info=info)
             raise err
 
         self._user_id = info["user_id"]
@@ -307,8 +346,14 @@ class AliPCS:
 
         return info
 
-    def meta(self, *file_ids: str, share_id: str = None):
-        assert "root" not in file_ids, '"root" has NOT meta info'
+    @handle_error
+    def path_traceback(self, file_id: str, share_id: Optional[str] = None):
+        """Traceback the path of the file by its file_id
+
+        Return the list of all parent directories' info from the file to the top level directory.
+        """
+
+        url = PcsNode.GetPath.url()
 
         headers = dict(PCS_HEADERS)
         headers.update({"x-device-id": self.device_id, "x-signature": self.signature})
@@ -319,47 +364,128 @@ class AliPCS:
 
             headers["x-share-token"] = share_token
 
-        responses = []
-        for file_id in file_ids:
-            data = dict(
-                file_id=file_id,
-                fields="*",
-                image_thumbnail_process="image/resize,w_400/format,jpeg",
-                image_url_process="image/resize,w_375/format,jpeg",
-                video_thumbnail_process="video/snapshot,t_1000,f_jpg,ar_auto,w_375",
-            )
+        data = dict(file_id=file_id, fields="*")
 
-            if share_id:
-                data["share_id"] = share_id
-            else:
-                data["drive_id"] = self.default_drive_id
+        if share_id:
+            data["share_id"] = share_id
+        else:
+            data["drive_id"] = self.default_drive_id
 
-            url = PcsNode.Meta.url()
-            resp = self._request(Method.Post, url, headers=headers, json=data)
-            info = resp.json()
-            responses.append(dict(body=info))
+        resp = self._request(Method.Post, url, headers=headers, json=data)
+        info = resp.json()
+        return info
 
-        return dict(responses=responses)
+    @handle_error
+    def meta_by_path(self, remotepath: str):
+        """Get meta info of the file by its path
+
+        Can not get the shared files' meta info.
+        """
+
+        assert remotepath.startswith("/"), "Path should start with '/'"
+
+        url = PcsNode.MetaByPath.url()
+        headers = dict(PCS_HEADERS)
+        headers.update({"x-device-id": self.device_id, "x-signature": self.signature})
+
+        data = dict(
+            file_path=remotepath,
+            fields="*",
+            drive_id=self.default_drive_id,
+            image_thumbnail_process="image/resize,w_400/format,jpeg",
+            image_url_process="image/resize,w_375/format,jpeg",
+            video_thumbnail_process="video/snapshot,t_1000,f_jpg,ar_auto,w_375",
+        )
+
+        resp = self._request(Method.Post, url, headers=headers, json=data)
+        info = resp.json()
+        return info
+
+    @handle_error
+    def meta(self, file_id: str, share_id: Optional[str] = None):
+        """Get meta info of the file by its file_id"""
+
+        url = PcsNode.Meta.url()
+        headers = dict(PCS_HEADERS)
+        headers.update({"x-device-id": self.device_id, "x-signature": self.signature})
+
+        if share_id:
+            share_token = self.share_token(share_id)
+            assert share_token, "Need share_token"
+
+            headers["x-share-token"] = share_token
+
+        data = dict(
+            file_id=file_id,
+            fields="*",
+            image_thumbnail_process="image/resize,w_400/format,jpeg",
+            image_url_process="image/resize,w_375/format,jpeg",
+            video_thumbnail_process="video/snapshot,t_1000,f_jpg,ar_auto,w_375",
+        )
+
+        if share_id:
+            data["share_id"] = share_id
+        else:
+            data["drive_id"] = self.default_drive_id
+
+        resp = self._request(Method.Post, url, headers=headers, json=data)
+        info = resp.json()
+        return info
 
     def exists(self, file_id: str) -> bool:
+        """Check whether the file exists
+
+        Return True if the file exists and does not in the trash else False.
+        """
+
         if file_id == "root":
             return True
 
-        r = self.meta(file_id)
-        info = r["responses"][0]["body"]
-        if info.get("code") == "NotFound.File":
+        try:
+            info = self.meta(file_id)
+        except AliPCSError as err:
+            if err.error_code and err.error_code.startswith("NotFound."):
+                return False
+            raise err
+
+        if info.get("parent_file_id") == "recyclebin":
+            # The file is not exists or in the trash
             return False
         else:
             return True
+
+    def exists_in_trash(self, file_id: str) -> bool:
+        """Check whether the file exists in the trash
+
+        Return True if the file exists in the trash else False.
+        """
+
+        if file_id == "recyclebin":
+            return True
+
+        try:
+            info = self.meta(file_id)
+        except AliPCSError as err:
+            if err.error_code and err.error_code.startswith("NotFound."):
+                return False
+            raise err
+
+        if info.get("parent_file_id") == "recyclebin":
+            return True
+        else:
+            return False
 
     def is_file(self, file_id: str) -> bool:
         if file_id == "root":
             return False
 
-        r = self.meta(file_id)
-        info = r["responses"][0]["body"]
-        if info.get("code") == "NotFound.File":
-            return False
+        try:
+            info = self.meta(file_id)
+        except AliPCSError as err:
+            if err.error_code and err.error_code.startswith("NotFound."):
+                return False
+            raise err
+
         if info["type"] == "file":
             return True
         else:
@@ -369,21 +495,23 @@ class AliPCS:
         if file_id == "root":
             return True
 
-        r = self.meta(file_id)
-        info = r["responses"][0]["body"]
-        if info.get("code") == "NotFound.File":
-            return False
+        try:
+            info = self.meta(file_id)
+        except AliPCSError as err:
+            if err.error_code and err.error_code.startswith("NotFound."):
+                return False
+            raise err
+
         if info["type"] == "folder":
             return True
         else:
             return False
 
-    @assert_ok
     @handle_error
     def list(
         self,
         file_id: str,
-        share_id: str = "",
+        share_id: Optional[str] = None,
         desc: bool = False,
         name: bool = False,
         time: bool = False,
@@ -440,6 +568,49 @@ class AliPCS:
 
         resp = self._request(Method.Post, url, headers=headers, json=data)
         return resp.json()
+
+    @handle_error
+    def walk(
+        self,
+        file_id: str,
+        share_id: Optional[str] = None,
+        all: bool = False,
+        limit: int = 200,
+        url_expire_sec: int = 14400,
+        next_marker: str = "",
+    ):
+        """Walk through the directory tree which has `file_id`"""
+
+        url = PcsNode.Walk.url()
+
+        headers = dict(PCS_HEADERS)
+        headers.update({"x-device-id": self.device_id, "x-signature": self.signature})
+
+        data = dict(
+            all=all,
+            drive_id=self.default_drive_id,
+            fields="*",
+            limit=limit,
+            parent_file_id=file_id,
+            url_expire_sec=url_expire_sec,
+            image_thumbnail_process="image/resize,w_256/format,jpeg",
+            image_url_process="image/resize,w_1920/format,jpeg/interlace,1",
+            video_thumbnail_process="video/snapshot,t_1000,f_jpg,ar_auto,w_256",
+        )
+        if next_marker:
+            data["marker"] = next_marker
+
+        if share_id:
+            share_token = self.share_token(share_id)
+            assert share_token, "Need share_token"
+
+            data["share_id"] = share_id
+            data.pop("drive_id")
+            headers["x-share-token"] = share_token
+
+        resp = self._request(Method.Post, url, headers=headers, json=data)
+        info = resp.json()
+        return info
 
     @staticmethod
     def part_info_list(part_number: int) -> List[Dict[str, int]]:
@@ -502,6 +673,7 @@ class AliPCS:
     def prepare_file(self, filename: str, dir_id: str, size: int, pre_hash: str = "", part_number: int = 1):
         return self.create_file(filename, dir_id, size, pre_hash=pre_hash, part_number=part_number)
 
+    @handle_error
     def get_upload_url(self, upload_id: str, file_id: str, part_number: int):
         """Get upload slices' urls
 
@@ -520,8 +692,6 @@ class AliPCS:
         resp = self._request(Method.Post, url, json=data)
         return resp.json()
 
-    @assert_ok
-    @handle_error
     def rapid_upload_file(self, filename: str, dir_id: str, size: int, content_hash: str, proof_code: str):
         """Rapid Upload File
 
@@ -531,22 +701,22 @@ class AliPCS:
 
         return self.create_file(filename, dir_id, size, content_hash=content_hash, proof_code=proof_code)
 
-    def upload_slice(self, io: IO, url: str, callback: Callable[[MultipartEncoderMonitor], None] = None) -> None:
+    def upload_slice(self, io: IO, url: str, callback_for_monitor: Optional[Callable[[int], Any]] = None) -> None:
         """Upload the content of io to remote url"""
 
-        cio = ChunkIO(io, total_len(io))
-        monitor = MultipartEncoderMonitor(cio, callback=callback)
+        data = ChunkIO(io, total_len(io))
+        if callback_for_monitor is not None:
+            data = MultipartEncoderMonitor(data, callback=lambda monitor: callback_for_monitor(monitor.bytes_read))
 
         session = requests.Session()
         session.request(
             "PUT",
             url,
             headers=dict(PCS_HEADERS),
-            data=monitor,
+            data=data,
             timeout=(3, 9),  # (connect timeout, read timeout)
         )
 
-    @assert_ok
     @handle_error
     def upload_complete(self, file_id: str, upload_id: str):
         url = PcsNode.UploadComplete.url()
@@ -554,7 +724,6 @@ class AliPCS:
         resp = self._request(Method.Post, url, json=data)
         return resp.json()
 
-    @assert_ok
     @handle_error
     def search(
         self,
@@ -592,7 +761,6 @@ class AliPCS:
         resp = self._request(Method.Post, url, json=data)
         return resp.json()
 
-    @assert_ok
     @handle_error
     def makedir(self, dir_id: str, name: str):
         url = PcsNode.CreateWithFolders.url()
@@ -606,7 +774,6 @@ class AliPCS:
         resp = self._request(Method.Post, url, json=data)
         return resp.json()
 
-    @assert_ok
     @handle_error
     def batch_operate(
         self, requests_: List[Dict[str, Any]], resource: str = "file", headers: Optional[Dict[str, str]] = None
@@ -648,7 +815,6 @@ class AliPCS:
 
         return self.batch_operate(requests_, resource="file")
 
-    @assert_ok
     @handle_error
     def rename(self, file_id: str, name: str):
         """Rename the file to `name`"""
@@ -698,7 +864,6 @@ class AliPCS:
             requests_.append(req)
         return self.batch_operate(requests_, resource="file")
 
-    @assert_ok
     @handle_error
     def check_available(self, file_ids: str):
         """Check whether file_ids are available"""
@@ -711,7 +876,6 @@ class AliPCS:
         resp = self._request(Method.Post, url, json=data)
         return resp.json()
 
-    @assert_ok
     @handle_error
     def share(self, *file_ids: str, password: str = "", period: int = 0, description: str = ""):
         """Share `remotepaths` to public
@@ -734,7 +898,6 @@ class AliPCS:
         resp = self._request(Method.Post, url, json=data)
         return resp.json()
 
-    @assert_ok
     @handle_error
     def list_shared(self, next_marker: str = ""):
         """List shared links"""
@@ -764,7 +927,6 @@ class AliPCS:
 
         return self.batch_operate(requests_, resource="file")
 
-    @assert_ok
     @handle_error
     def get_share_token(self, share_id: str, share_password: str = ""):
         """Get share token"""
@@ -792,7 +954,6 @@ class AliPCS:
         shared_auth = self.__class__.SHARE_AUTHS[share_id]
         return shared_auth.share_token
 
-    @assert_ok
     @handle_error
     def shared_info(self, share_id: str):
         """Get shared items info"""
@@ -838,7 +999,6 @@ class AliPCS:
 
         return self.batch_operate(requests_, resource="file", headers=headers)
 
-    @assert_ok
     @handle_error
     def _get_shared_file_download_url(self, shared_file_id: str, share_id: str, expire_duration: int = 10 * 60):
         url = PcsNode.SharedFileDownloadUrl.url()
@@ -862,7 +1022,6 @@ class AliPCS:
         resp = requests.get(url, headers=headers, allow_redirects=False)
         return resp.headers["Location"]
 
-    @assert_ok
     @handle_error
     def user_info(self):
         url = PcsNode.User.url()
@@ -882,10 +1041,15 @@ class AliPCS:
         return {**info1, **info2, "user_vip_info": info3}
 
     @timeout_cache(1 * 60 * 60)  # 1 hour timeout
-    @assert_ok
     @handle_error
     def download_link(self, file_id: str):
-        info = self.meta(file_id)["responses"][0]["body"]
+        """Get download link of the file by its file_id
+
+        First try to get the download link from the meta info of the file.
+        If the download link is not in the meta info, then request the getting download url api.
+        """
+
+        info = self.meta(file_id)
         if info.get("url") or info.get("download_url"):
             return info
 
@@ -900,7 +1064,7 @@ class AliPCS:
         self,
         file_id: str,
         max_chunk_size: int = DEFAULT_MAX_CHUNK_SIZE,
-        callback: Callable[..., None] = None,
+        callback: Optional[Callable[..., None]] = None,
         encrypt_password: bytes = b"",
     ) -> Optional[RangeRequestIO]:
         info = self.download_link(file_id)
@@ -928,7 +1092,7 @@ class AliPCS:
         share_id: str,
         expire_duration: int = 10 * 60,
         max_chunk_size: int = DEFAULT_MAX_CHUNK_SIZE,
-        callback: Callable[..., None] = None,
+        callback: Optional[Callable[..., None]] = None,
         encrypt_password: bytes = b"",
     ) -> Optional[RangeRequestIO]:
         url = self.shared_file_download_url(shared_file_id, share_id, expire_duration=expire_duration)
@@ -995,7 +1159,31 @@ class OpenPcsNode(Enum):
 
 
 class AliOpenPCS:
-    """`Aliyundrive Open PCS` provides pcs's apis which return raw json"""
+    """Alipan Drive Personal Cloud Service Raw Open API
+
+    The core class is used to interact with Alipan Drive Personal Cloud Service with open apis.
+    It provides the basic operations of the service and handles the raw requests and responses.
+
+    An `AliPCSError` error will be raised if the code of the response occurs.
+
+    Args:
+        refresh_token (str): The refresh token of the user.
+        access_token (str, optional): The access token of the user.
+        token_type (str): The token type. Default is "Bearer".
+        expire_time (int, optional): The expire time of the token.
+        user_id (str, optional): The user id of the user.
+        user_name (str, optional): The user name of the user.
+        nick_name (str, optional): The nick name of the user.
+        device_id (str, optional): The device id of the user.
+        default_drive_id (str, optional): The default drive id of the user.
+        role (str, optional): The role of the user.
+        status (str, optional): The status of the user.
+        error_max_retries (int): The max retries when a client request error occurs. Default is 2.
+        max_keepalive_connections (int): The max keepalive connections. Default is 50.
+        max_connections (int): The max number of connections in the pool. Default is 50.
+        keepalive_expiry (float): The keepalive expiry. Default is 10 * 60 seconds.
+        connection_max_retries (int): The max retries when a connection error occurs. Default is 2.
+    """
 
     SHARE_AUTHS: Dict[str, SharedAuth] = {}
 
@@ -1014,12 +1202,24 @@ class AliOpenPCS:
         default_drive_id: str = "",
         role: str = "",
         status: str = "",
+        error_max_retries: int = 2,
+        max_keepalive_connections: int = 50,
+        max_connections: int = 50,
+        keepalive_expiry: float = 10 * 60,
+        connection_max_retries: int = 2,
     ):
         assert (
             client_id and client_secret
         ) or client_server, "(client_id and client_secret) or client_server must be set"
 
-        self._session = requests.Session()
+        self._session = make_http_session(
+            max_keepalive_connections=max_keepalive_connections,
+            max_connections=max_connections,
+            keepalive_expiry=keepalive_expiry,
+            max_retries=connection_max_retries,
+        )
+
+        self._error_max_retries = error_max_retries
 
         self._refresh_token = refresh_token
         self._access_token = access_token
@@ -1158,7 +1358,7 @@ class AliOpenPCS:
             )
             return resp
         except Exception as err:
-            raise AliPCSError("AliPCS._request", cause=err)
+            raise AliPCSError("AliPCS._request") from err
 
     def _update_refresh_token(self):
         """Update refresh token"""
@@ -1175,7 +1375,7 @@ class AliOpenPCS:
         info = resp.json()
 
         if "code" in info:
-            err = parse_error(info["code"], info=info)
+            err = make_alipcs_error(info["code"], info=info)
             raise err
 
         self._refresh_token = info["refresh_token"]
@@ -1195,7 +1395,7 @@ class AliOpenPCS:
         info = resp.json()
 
         if "code" in info:
-            err = parse_error(info["code"], info=info)
+            err = make_alipcs_error(info["code"], info=info)
             raise err
 
         self._user_id = info["user_id"]
@@ -1208,38 +1408,38 @@ class AliOpenPCS:
 
         return info
 
-    def meta(self, *file_ids: str, share_id: str = None):
-        assert "root" not in file_ids, '"root" has NOT meta info'
-
-        responses = []
-        for file_id in file_ids:
-            data = dict(file_id=file_id, fields="*", drive_id=self.default_drive_id)
-            url = OpenPcsNode.Meta.url()
-            resp = self._request(Method.Post, url, json=data)
-            info = resp.json()
-            responses.append(dict(body=info))
-
-        return dict(responses=responses)
+    @handle_error
+    def meta(self, file_id: str, share_id: Optional[str] = None):
+        data = dict(file_id=file_id, fields="*", drive_id=self.default_drive_id)
+        url = OpenPcsNode.Meta.url()
+        resp = self._request(Method.Post, url, json=data)
+        info = resp.json()
+        return info
 
     def exists(self, file_id: str) -> bool:
         if file_id == "root":
             return True
 
-        r = self.meta(file_id)
-        info = r["responses"][0]["body"]
-        if info.get("code") == "NotFound.File":
-            return False
-        else:
-            return True
+        try:
+            info = self.meta(file_id)
+        except AliPCSError as err:
+            if err.error_code and err.error_code.startswith("NotFound."):
+                return False
+            raise err
+
+        return True
 
     def is_file(self, file_id: str) -> bool:
         if file_id == "root":
             return False
 
-        r = self.meta(file_id)
-        info = r["responses"][0]["body"]
-        if info.get("code") == "NotFound.File":
-            return False
+        try:
+            info = self.meta(file_id)
+        except AliPCSError as err:
+            if err.error_code and err.error_code.startswith("NotFound."):
+                return False
+            raise err
+
         if info["type"] == "file":
             return True
         else:
@@ -1249,21 +1449,23 @@ class AliOpenPCS:
         if file_id == "root":
             return True
 
-        r = self.meta(file_id)
-        info = r["responses"][0]["body"]
-        if info.get("code") == "NotFound.File":
-            return False
+        try:
+            info = self.meta(file_id)
+        except AliPCSError as err:
+            if err.error_code and err.error_code.startswith("NotFound."):
+                return False
+            raise err
+
         if info["type"] == "folder":
             return True
         else:
             return False
 
-    @assert_ok
     @handle_error
     def list(
         self,
         file_id: str,
-        share_id: str = None,
+        share_id: Optional[str] = None,
         desc: bool = False,
         name: bool = False,
         time: bool = False,
@@ -1312,7 +1514,6 @@ class AliOpenPCS:
         return [dict(part_number=i) for i in range(1, part_number + 1)]
 
     @timeout_cache(4 * 60 * 60)  # 4 hour timeout
-    @assert_ok
     @handle_error
     def download_link(self, file_id: str):
         url = OpenPcsNode.DownloadUrl.url()
@@ -1324,7 +1525,7 @@ class AliOpenPCS:
         self,
         file_id: str,
         max_chunk_size: int = DEFAULT_MAX_CHUNK_SIZE,
-        callback: Callable[..., None] = None,
+        callback: Optional[Callable[..., None]] = None,
         encrypt_password: bytes = b"",
     ) -> Optional[RangeRequestIO]:
         info = self.download_link(file_id)
@@ -1379,7 +1580,7 @@ class AliOpenAuth:
             )
             return resp
         except Exception as err:
-            raise AliPCSError("AliOpenAuth._request", cause=err)
+            raise AliPCSError("AliOpenAuth._request") from err
 
     @staticmethod
     def qrcode_url(sid: str) -> str:

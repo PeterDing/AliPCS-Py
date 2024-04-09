@@ -55,3 +55,6 @@ docs/_build/
 /bin.py
 /alipcs_py/common/simple_cipher.c
 /alipcs_py/common/simple_cipher.html
+
+# Secret things
+/run-tests.sh

@@ -146,18 +146,17 @@ class AliPCSApiMixWithSharedStore(AliPCSApiMix):
 
         return token
 
-    def meta(self, *args, **kwargs):
-        share_id = kwargs.get("share_id")
-
-        pcs_files = super().meta(*args, **kwargs)
+    def meta(self, file_id: str, share_id: Optional[str] = None) -> Optional[PcsFile]:
+        pcs_file = super().meta(file_id, share_id=share_id)
+        if pcs_file is None:
+            return None
         if not self._sharedstore:
-            return pcs_files
+            return pcs_file
 
         if share_id:
-            for pcs_file in pcs_files:
-                self._sharedstore.add_shared_file(share_id, pcs_file)
+            self._sharedstore.add_shared_file(share_id, pcs_file)
 
-        return pcs_files
+        return pcs_file
 
     def list(self, *args, **kwargs):
         share_id = kwargs.get("share_id")

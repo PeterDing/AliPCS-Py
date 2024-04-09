@@ -3,47 +3,88 @@ from functools import wraps
 import time
 import logging
 
+from alipcs_py.common.path import PathType
+from alipcs_py.alipcs.inner import PcsFile
+
 logger = logging.getLogger(__name__)
 
 
-class AliPCSError(Exception):
-    def __init__(self, message: str, error_code: Optional[str] = None, cause=None):
-        self.__cause__ = cause
+class AliPCSBaseError(Exception):
+    """Base exception for all errors.
+
+    Args:
+        message (Optional[object]): The message object stringified as 'message' attribute
+        keyword error (Exception): The original exception if any
+    """
+
+    def __init__(self, message: Optional[object], *args: Any, **kwargs: Any) -> None:
+        self.inner_exception: Optional[BaseException] = kwargs.get("error")
+
+        self.message = str(message)
+        super().__init__(self.message, *args)
+
+
+class AliPCSError(AliPCSBaseError):
+    """The error returned from alipan server when the client’s request is incorrect or the token is expired.
+
+    It is throwed at `AliPCS` class when an error occurs, then transports to the upper level class.
+    """
+
+    def __init__(self, message: str, error_code: Optional[str] = None):
         self.error_code = error_code
         super().__init__(message)
 
 
-def parse_error(error_code: str, info: Any = None) -> AliPCSError:
-    msg = f"error_code: {error_code}, response: {info}"
+class DownloadError(AliPCSBaseError):
+    """An error occurred while downloading a file."""
+
+    def __init__(self, message: str, remote_pcs_file: PcsFile, localdir: PathType):
+        self.remote_pcs_file = remote_pcs_file
+        self.localdir = localdir
+        super().__init__(message)
+
+
+class UploadError(AliPCSBaseError):
+    """An error occurred while uploading a file."""
+
+    def __init__(self, message: str, localpath: PathType, remotepath: str):
+        self.local_file = localpath
+        self.remote_dir = remotepath
+        super().__init__(message)
+
+
+class RapidUploadError(UploadError):
+    """An error occurred while rapid uploading a file."""
+
+    def __init__(self, message: str, localpath: PathType, remotepath: str):
+        super().__init__(message, localpath, remotepath)
+
+
+def make_alipcs_error(error_code: str, info: Any = None) -> AliPCSError:
+    msg = f"API error code: {error_code}, response: {info}"
     return AliPCSError(msg, error_code=error_code)
 
 
-def assert_ok(func):
-    """Assert the errno of response is not 0"""
-
-    @wraps(func)
-    def check(*args, **kwargs):
-        info = func(*args, **kwargs)
-        error_code = info.get("code")
-
-        if error_code:
-            err = parse_error(error_code, str(info))
-            raise err
-
-        return info
-
-    return check
-
-
 def handle_error(func):
-    @wraps(func)
-    def refresh(*args, **kwargs):
-        code = "This is impossible !!!"
-        for _ in range(2):
-            self = args[0]
+    """Handle error when calling AliPCS API."""
 
-            info = func(*args, **kwargs)
-            code = info.get("code")
+    @wraps(func)
+    def retry(*args, **kwargs):
+        self = args[0]
+        max_retries = getattr(self, "_error_max_retries", 2)
+        code = "This is impossible !!!"
+        result = None
+        for _ in range(max_retries):
+            result = func(*args, **kwargs)
+            if not isinstance(result, dict):
+                return result
+
+            code = result.get("code")
+            if not code:
+                return result
+
+            # Error code
+            # {{{
             if code == "AccessTokenInvalid":
                 self.refresh()
                 continue
@@ -62,7 +103,7 @@ def handle_error(func):
                 continue
 
             elif code == "ParamFlowException":
-                logger.warning("ParamFlowException, sleep 10s")
+                logger.warning("ParamFlowException occurs. sleep 10s.")
                 time.sleep(10)
                 continue
 
@@ -70,8 +111,16 @@ def handle_error(func):
                 self._signature = ""
                 continue
 
-            return info
+            elif code.startswith("NotFound."):
+                break
+            # }}}
 
-        raise parse_error(code)
+            # Status code
+            # {{{
+            elif code == "PreHashMatched":  # AliPCS.create_file: Pre hash matched.
+                return result
+            # }}}
 
-    return refresh
+        raise make_alipcs_error(code, info=result)
+
+    return retry

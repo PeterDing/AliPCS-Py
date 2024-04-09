@@ -41,19 +41,15 @@ def list_file(
     csv: bool = False,
     only_dl_link: bool = False,
 ):
-    pcs_file: Optional[PcsFile]
-    if file_id:
-        pcs_file = api.meta(file_id, share_id=share_id)[0]
-    else:
-        pcs_file = api.path(remotepath, share_id=share_id)
-    if not pcs_file:
+    pcs_file = api.get_file(remotepath=remotepath, file_id=file_id, share_id=share_id)
+    if pcs_file is None:
         return
 
     is_dir = pcs_file.is_dir
     if is_dir:
-        pcs_files = api.list_path(
-            remotepath,
-            file_id=pcs_file.file_id,
+        pcs_files = []
+        for sub_pf in api.list_iter(
+            pcs_file.file_id,
             share_id=share_id,
             desc=desc,
             name=name,
@@ -62,7 +58,9 @@ def list_file(
             all=all,
             limit=limit,
             url_expire_sec=url_expire_sec,
-        )
+        ):
+            sub_pf.path = join_path(remotepath, sub_pf.path)
+            pcs_files.append(sub_pf)
     else:
         pcs_files = [pcs_file]
 
@@ -95,7 +93,7 @@ def list_file(
             if pcs_file.is_dir:
                 list_file(
                     api,
-                    join_path(remotepath, pcs_file.name),
+                    pcs_file.path,
                     file_id=pcs_file.file_id,
                     share_id=share_id,
                     desc=desc,

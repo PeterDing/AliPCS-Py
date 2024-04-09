@@ -1,9 +1,9 @@
 import sys
 
-if sys.version_info > (3, 8):
-    from typing import Annotated
-else:
+if sys.version_info < (3, 9):
     from typing_extensions import Annotated
+else:
+    from typing import Annotated
 
 from typing import Optional, Dict, Any
 
@@ -128,18 +128,18 @@ async def handle_request(
     if is_dir:
         chunks = ["/"] + (remotepath.split("/") if remotepath != "" else [])
         navigation = [(i - 1, "../" * (len(chunks) - i), name) for i, name in enumerate(chunks, 1)]
-        pcs_files = _api.list_path_iter(_rp, desc=desc, name=name, time=time, size=size)
         entries = []
-        for f in pcs_files:
-            p = Path(f.path)
+        pcs_files = _api.list_iter(rpf.file_id, desc=desc, name=name, time=time, size=size)
+        for pf in pcs_files:
+            p = rpf.path / Path(pf.path)
             entries.append(
                 (
-                    f.file_id,
-                    f.is_dir,
+                    pf.file_id,
+                    pf.is_dir,
                     p.name,
                     quote(p.name),
-                    f.size,
-                    format_date(f.updated_at or 0),
+                    pf.size,
+                    format_date(pf.updated_at or 0),
                 )
             )
         cn = _html_tempt.render(root_dir=remotepath, navigation=navigation, entries=entries)

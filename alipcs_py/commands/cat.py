@@ -12,8 +12,7 @@ def cat(
     encoding: Optional[str] = None,
     encrypt_password: bytes = b"",
 ):
-    pcs_file = api.path(remotepath)
-
+    pcs_file = api.get_file(remotepath=remotepath)
     if not pcs_file:
         return
 

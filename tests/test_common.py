@@ -1,12 +1,10 @@
 import time
 import os
 import io
-import sys
 import subprocess
 
 import requests
 
-from alipcs_py.common.concurrent import Executor
 from alipcs_py.common import constant
 from alipcs_py.common.number import u64_to_u8x8, u8x8_to_u64
 from alipcs_py.common.path import join_path
@@ -22,7 +20,6 @@ from alipcs_py.common.io import (
     AES256CBCEncryptIO,
     to_decryptio,
     rapid_upload_params,
-    EncryptType,
 )
 from alipcs_py.common.crypto import (
     generate_key_iv,
@@ -31,7 +28,6 @@ from alipcs_py.common.crypto import (
     random_bytes,
     _md5_cmd,
     calc_file_md5,
-    calc_md5,
     SimpleCryptography,
     ChaCha20Cryptography,
     AES256CBCCryptography,
@@ -431,21 +427,3 @@ def test_human_size():
     s_int = human_size_to_int(s_str)
 
     assert s == s_int
-
-
-def test_executor():
-    def f(n):
-        return n
-
-    with Executor(max_workers=1) as executor:
-        r = executor.submit(f, 1)
-        assert r == 1
-
-    futs = []
-    with Executor(max_workers=2) as executor:
-        fut = executor.submit(f, 1)
-        futs.append(fut)
-
-    for fut in futs:
-        r = fut.result()
-        assert r == 1

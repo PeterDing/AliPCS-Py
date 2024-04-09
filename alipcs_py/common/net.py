@@ -1,5 +1,8 @@
 import socket
 
+import requests
+import requests.adapters
+
 
 def avail_port(port: int) -> bool:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -20,3 +23,22 @@ def random_avail_port() -> int:
         s.listen()
         _, port = s.getsockname()
         return port
+
+
+def make_http_session(
+    max_keepalive_connections: int = 50,
+    max_connections: int = 50,
+    keepalive_expiry: float = 10 * 60,
+    max_retries: int = 2,
+) -> requests.Session:
+    """Make a http session with keepalive connections, maximum connections and retries"""
+
+    session = requests.Session()
+    adapter = requests.adapters.HTTPAdapter(
+        pool_connections=max_keepalive_connections,
+        pool_maxsize=max_connections,
+        max_retries=max_retries,
+    )
+    session.mount("http://", adapter)
+    session.mount("https://", adapter)
+    return session

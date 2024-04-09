@@ -51,6 +51,8 @@ passlib = ">=1.7"
 
 [tool.poetry.group.dev.dependencies]
 pytest = ">=7.4"
+pytest-cov = ">=5.0"
+Faker = ">=24"
 ruff = ">=0.3"
 setuptools = ">=69.0"
 cython = ">=3.0"

@@ -1,12 +1,10 @@
-from typing import Optional, List, Dict
+from typing import Optional, List
 from enum import Enum
-from pathlib import Path
 import os
 import shutil
 import subprocess
 import random
 import time
-from urllib.parse import quote
 
 from alipcs_py.alipcs import AliPCSApi, PcsFile
 from alipcs_py.alipcs.errors import AliPCSError
@@ -14,7 +12,6 @@ from alipcs_py.commands.sifter import Sifter, sift
 from alipcs_py.commands.download import USER_AGENT
 from alipcs_py.commands.errors import CommandError
 from alipcs_py.common.file_type import MEDIA_EXTS
-from alipcs_py.common.path import join_path
 
 from rich import print
 
@@ -126,7 +123,7 @@ def play_file(
         shared_pcs_filename = pcs_file.name
         use_local_server = False
         remote_temp_dir = "/__alipcs_py_temp__"
-        pcs_temp_dir = api.path(remote_temp_dir) or api.makedir_path(remote_temp_dir)
+        pcs_temp_dir = api.path(remote_temp_dir) or api.makedir_path(remote_temp_dir)[0]
         pf = api.transfer_shared_files([shared_pcs_file_id], pcs_temp_dir.file_id, share_id)[0]
         target_file_id = pf.file_id
         while True:
@@ -189,21 +186,18 @@ def play_dir(
     out_cmd: bool = False,
     local_server: str = "",
 ):
-    if pcs_file.path.startswith("/"):
-        remotefiles = list(api.list_path(pcs_file.path, share_id=share_id))
-    else:
-        remotefiles = list(api.list_iter(pcs_file.file_id, share_id=share_id))
-    remotefiles = sift(remotefiles, sifters, recursive=recursive)
+    sub_pcs_files = list(api.list_iter(pcs_file.file_id, share_id=share_id))
+    sub_pcs_files = sift(sub_pcs_files, sifters, recursive=recursive)
 
     if shuffle:
         rg = random.Random(time.time())
-        rg.shuffle(remotefiles)
+        rg.shuffle(sub_pcs_files)
 
-    for rp in remotefiles[from_index:]:
-        if rp.is_file:
+    for pf in sub_pcs_files[from_index:]:
+        if pf.is_file:
             play_file(
                 api,
-                rp,
+                pf,
                 share_id=share_id,
                 player=player,
                 player_params=player_params,
@@ -216,7 +210,7 @@ def play_dir(
             if recursive:
                 play_dir(
                     api,
-                    rp,
+                    pf,
                     share_id=share_id,
                     sifters=sifters,
                     recursive=recursive,
@@ -293,8 +287,8 @@ def play(
             )
 
     for file_id in file_ids:
-        rpf = api.meta(file_id, share_id=share_id)[0]
-        if not rpf:
+        rpf = api.get_file(file_id=file_id, share_id=share_id)
+        if rpf is None:
             print(f"[yellow]WARNING[/yellow]: file_id `{file_id}` does not exist.")
             continue
 
