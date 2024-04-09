@@ -1011,13 +1011,26 @@ class AutoDecryptRequest:
 
 
 class RangeRequestIO(IO):
+    """Request IO with range header
+
+    Args:
+        method (str): HTTP method
+        url (str): URL
+        headers (Optional[Dict[str, str]]): HTTP headers
+        max_chunk_size (int): The max chunk size
+        callback (Optional[Callable[[int], None]]): Callback function for progress monitor,
+            the argument is the current offset.
+        encrypt_password (bytes): Encrypt password
+        **kwargs: Other kwargs for request
+    """
+
     def __init__(
         self,
         method: str,
         url: str,
         headers: Optional[Dict[str, str]] = None,
         max_chunk_size: int = DEFAULT_MAX_CHUNK_SIZE,
-        callback: Optional[Callable[..., None]] = None,
+        callback: Optional[Callable[[int], Any]] = None,
         encrypt_password: bytes = b"",
         **kwargs,
     ):
@@ -1056,14 +1069,14 @@ class RangeRequestIO(IO):
 
         start, end = self._offset, self._offset + size
 
-        buf = b""
-        for b in self._auto_decrypt_request.read((start, end)):
-            buf += b
-            self._offset += len(b)
+        buffer = b""
+        for buf in self._auto_decrypt_request.read((start, end)):
+            buffer += buf
+            self._offset += len(buf)
             # Call callback
             if self._callback:
                 self._callback(self._offset)
-        return buf
+        return buffer
 
     def read_iter(self, size: int = -1) -> Iterable[bytes]:
         if size == 0:
