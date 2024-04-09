@@ -701,20 +701,19 @@ class AliPCS:
 
         return self.create_file(filename, dir_id, size, content_hash=content_hash, proof_code=proof_code)
 
-    def upload_slice(
-        self, io: IO, url: str, callback: Optional[Callable[[MultipartEncoderMonitor], None]] = None
-    ) -> None:
+    def upload_slice(self, io: IO, url: str, callback_for_monitor: Optional[Callable[[int], Any]] = None) -> None:
         """Upload the content of io to remote url"""
 
-        cio = ChunkIO(io, total_len(io))
-        monitor = MultipartEncoderMonitor(cio, callback=callback)
+        data = ChunkIO(io, total_len(io))
+        if callback_for_monitor is not None:
+            data = MultipartEncoderMonitor(data, callback=lambda monitor: callback_for_monitor(monitor.bytes_read))
 
         session = requests.Session()
         session.request(
             "PUT",
             url,
             headers=dict(PCS_HEADERS),
-            data=monitor,
+            data=data,
             timeout=(3, 9),  # (connect timeout, read timeout)
         )
 

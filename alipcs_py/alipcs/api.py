@@ -1,4 +1,4 @@
-from typing import Optional, List, Tuple, Dict, Union, DefaultDict, Iterable, Callable, IO
+from typing import Any, Optional, List, Tuple, Dict, Union, DefaultDict, Iterable, Callable, IO
 from threading import Lock
 from collections import defaultdict
 from copy import deepcopy
@@ -548,15 +548,13 @@ class AliPCSApi:
             filename, dir_id, size, content_hash=content_hash, proof_code=proof_code, check_name_mode=check_name_mode
         )
 
-    def upload_slice(
-        self, io: IO, url: str, callback: Optional[Callable[[MultipartEncoderMonitor], None]] = None
-    ) -> None:
+    def upload_slice(self, io: IO, url: str, callback_for_monitor: Optional[Callable[[int], Any]] = None) -> None:
         """Upload an io as a slice
 
-        callable: the callback for monitoring uploading progress
+        callable: the callback for monitor
         """
 
-        self._alipcs.upload_slice(io, url, callback=callback)
+        self._alipcs.upload_slice(io, url, callback_for_monitor=callback_for_monitor)
 
     def upload_complete(self, file_id: str, upload_id: str) -> PcsFile:
         """Tell server that all slices have been uploaded
