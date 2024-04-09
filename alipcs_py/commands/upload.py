@@ -1,4 +1,4 @@
-from typing import Callable, Optional, List, Sequence, Tuple, IO, Union
+from typing import Any, Callable, Optional, List, Sequence, Tuple, IO, Union
 import os
 import time
 import math
@@ -11,16 +11,20 @@ from alipcs_py.alipcs.errors import AliPCSError, RapidUploadError, UploadError
 from alipcs_py.alipcs import AliPCSApi, FromTo
 from alipcs_py.alipcs.pcs import CheckNameMode
 from alipcs_py.common import constant
-from alipcs_py.common.path import PathType, is_file, exists, posix_path_basename, posix_path_dirname
+from alipcs_py.common.path import PathType, exists, posix_path_basename, posix_path_dirname
 from alipcs_py.common.event import KeyHandler, KeyboardMonitor
 from alipcs_py.common.constant import CPU_NUM
 from alipcs_py.common.concurrent import retry
-from alipcs_py.common.progress_bar import _progress, progress_task_exists, remove_progress_task, reset_progress_task
+from alipcs_py.common.progress_bar import (
+    _progress,
+    init_progress_bar,
+    progress_task_exists,
+    remove_progress_task,
+    reset_progress_task,
+)
 from alipcs_py.common.crypto import calc_sha1, calc_proof_code
 from alipcs_py.common.io import total_len, EncryptType, reset_encrypt_io
 from alipcs_py.commands.log import get_logger
-
-from requests_toolbelt import MultipartEncoderMonitor
 
 from rich.progress import TaskID
 from rich import print
@@ -153,11 +157,7 @@ def upload(
     futures = []
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         for idx, from_to in enumerate(from_to_list):
-            task_id = None
-            if show_progress:
-                task_id = _progress.add_task("upload", start=False, title=from_to[0])
-
-            logger.debug("`upload_many`: Upload: index: %s, task_id: %s", idx, task_id)
+            logger.debug("`upload_many`: Upload: index: %s", idx)
 
             retry_upload_file = retry(
                 max_retries,
@@ -178,7 +178,7 @@ def upload(
                 encrypt_type=encrypt_type,
                 slice_size=slice_size,
                 only_use_rapid_upload=only_use_rapid_upload,
-                task_id=task_id,
+                show_progress=show_progress,
             )
             futures.append(fut)
 
@@ -271,8 +271,8 @@ def upload_file(
     encrypt_type: EncryptType = EncryptType.No,
     slice_size: Union[str, int] = DEFAULT_SLICE_SIZE,
     only_use_rapid_upload: bool = False,
-    task_id: Optional[TaskID] = None,
-    callback_for_monitor: Optional[Callable[[MultipartEncoderMonitor], None]] = None,
+    callback_for_monitor: Optional[Callable[[int], Any]] = None,
+    show_progress: bool = False,
 ) -> None:
     """Upload a file from `from_to[0]` to `from_to[1]`
 
@@ -289,7 +289,8 @@ def upload_file(
         slice_size (Union[str, int], optional): Slice size. Defaults to DEFAULT_SLICE_SIZE.
         only_use_rapid_upload (bool, optional): Only use rapid upload. If rapid upload fails, raise exception. Defaults to False.
         task_id (Optional[TaskID], optional): Task ID. Defaults to None.
-        callback_for_monitor (Optional[Callable[[MultipartEncoderMonitor], None]], optional): Callback for progress monitor. Defaults to None.
+        callback_for_monitor (Optional[Callable[[int], Any]], optional): Callback for progress monitor. Defaults to None.
+            The callback should accept one argument which is the offset of the uploaded bytes.
 
     Examples:
     - Upload one file to one remote directory
@@ -302,10 +303,25 @@ def upload_file(
         >>> localpath = "/local/file"
         >>> from_to = (localpath, remotedir)
         >>> upload_file(api, from_to)
+        ```
+
+    - With tqdm progress bar
+
+        ```python
+        >>> from alipcs_py.alipcs import AliPCSApi
+        >>> from alipcs_py.commands.upload import upload, from_tos
+        >>> api = AliPCSApi(...)
+        >>> remotedir = "/remote/dir"
+        >>> localpath = "/local/file"
+        >>> from_to = (localpath, remotedir)
+        >>> with tqdm.tqdm(total=Path(localpath).stat().st_size) as pbar:
+        >>>    upload_file(api, from_to, callback_for_monitor=lambda offset: pbar.n = offset)
+        ```
     """
 
     _wait_start()
 
+    # Upload basic info
     localpath, remotepath = from_to
 
     remotedir = posix_path_dirname(remotepath)
@@ -318,12 +334,19 @@ def upload_file(
 
     filename = posix_path_basename(remotepath)
 
+    # Progress bar
+    task_id: Optional[TaskID] = None
+    if show_progress:
+        init_progress_bar()
+        task_id = _progress.add_task("upload", start=False, title=from_to[0])
+
     if not _need_to_upload(api, remotepath, check_name_mode):
         if task_id is not None:
             print(f"`{remotepath}` already exists.")
         remove_progress_task(task_id)
         return
 
+    # Upload IO info
     info = _init_encrypt_io(localpath, encrypt_password=encrypt_password, encrypt_type=encrypt_type)
     encrypt_io, encrypt_io_len, local_ctime, local_mtime = info
     if isinstance(slice_size, str):
@@ -338,9 +361,16 @@ def upload_file(
 
     slice_completed = 0
 
-    def callback_for_slice(monitor: MultipartEncoderMonitor):
-        if task_id is not None and progress_task_exists(task_id):
-            _progress.update(task_id, completed=slice_completed + monitor.bytes_read)
+    def callback_for_slice(offset: int):
+        if callback_for_monitor is not None:
+            callback_for_monitor(slice_completed + offset)
+        else:
+            if task_id is not None and progress_task_exists(task_id):
+                _progress.update(task_id, completed=slice_completed + offset)
+
+    def teardown():
+        encrypt_io.close()
+        remove_progress_task(task_id)
 
     # Rapid Upload
     try:
@@ -377,14 +407,17 @@ def upload_file(
                     task_id=task_id,
                 )
                 if ok:
+                    teardown()
                     return
     except Exception as origin_err:
+        teardown()
         msg = f'Rapid upload "{localpath}" to "{remotepath}" failed. error: {origin_err}'
         logger.debug(msg)
         err = RapidUploadError(msg, localpath=localpath, remotepath=remotepath)
         raise err from origin_err
 
     if only_use_rapid_upload:
+        teardown()
         msg = f'Only use rapid upload but rapid upload failed. localpath: "{localpath}", remotepath: "{remotepath}"'
         logger.debug(msg)
         err = RapidUploadError(msg, localpath=localpath, remotepath=remotepath)
@@ -440,11 +473,7 @@ def upload_file(
                     )
 
                     upload_url = upload_urls[slice_idx]
-                    api.upload_slice(
-                        io,
-                        upload_url,
-                        callback=callback_for_slice if callback_for_monitor is None else callback_for_monitor,
-                    )
+                    api.upload_slice(io, upload_url, callback_for_monitor=callback_for_slice)
                     slice_idx += 1
                     break
                 except Exception as origin_err:
@@ -474,8 +503,6 @@ def upload_file(
                 f"Hashs do not match between local file and remote file: local sha1 ({local_file_hash}) != remote sha1 ({remote_file_hash})"
             )
 
-        remove_progress_task(task_id)
-
         logger.debug(
             "`upload_file`: upload_slice and combine_slices success, task_id: %s",
             task_id,
@@ -486,5 +513,4 @@ def upload_file(
         err = UploadError(msg, localpath=localpath, remotepath=remotepath)
         raise err from origin_err
     finally:
-        encrypt_io.close()
-        reset_progress_task(task_id)
+        teardown()

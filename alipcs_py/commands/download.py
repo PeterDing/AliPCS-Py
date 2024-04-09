@@ -1,4 +1,4 @@
-from typing import Iterable, Optional, List, Sequence, Tuple, Union
+from typing import Any, Callable, Iterable, Optional, List, Sequence, Tuple, Union
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from enum import Enum
 from pathlib import Path
@@ -65,6 +65,7 @@ class Downloader(Enum):
         max_retries: int = 2,
         out_cmd: bool = False,
         encrypt_password: bytes = b"",
+        callback_for_monitor: Optional[Callable[[int], Any]] = None,
     ):
         global DEFAULT_DOWNLOADER
         if not self.which():
@@ -80,6 +81,7 @@ class Downloader(Enum):
                 show_progress=show_progress,
                 max_retries=max_retries,
                 encrypt_password=encrypt_password,
+                callback_for_monitor=callback_for_monitor,
             )
             shutil.move(localpath_tmp, localpath)
             return
@@ -149,6 +151,7 @@ class Downloader(Enum):
         show_progress: bool = False,
         max_retries: int = 2,
         encrypt_password: bytes = b"",
+        callback_for_monitor: Optional[Callable[[int], Any]] = None,
     ):
         headers = {
             "Referer": "https://www.aliyundrive.com/",
@@ -166,19 +169,20 @@ class Downloader(Enum):
 
         def monitor_callback(offset: int):
             if task_id is not None:
-                _progress.update(task_id, completed=offset + 1)
+                _progress.update(task_id, completed=offset)
 
         def except_callback(err):
             reset_progress_task(task_id)
 
         if isinstance(chunk_size, str):
             chunk_size = human_size_to_int(chunk_size)
+
         io = RangeRequestIO(
             "GET",
             url,
             headers=headers,
             max_chunk_size=chunk_size,
-            callback=monitor_callback,
+            callback=monitor_callback if callback_for_monitor is None else callback_for_monitor,
             encrypt_password=encrypt_password,
         )
 
@@ -307,6 +311,7 @@ def download_file(
     max_retries: int = 2,
     out_cmd: bool = False,
     encrypt_password: bytes = b"",
+    callback_for_monitor: Optional[Callable[[int], Any]] = None,
 ) -> None:
     """Download a `remote_file` to the `localdir`
 
@@ -324,6 +329,9 @@ def download_file(
         max_retries (int, optional): The max retries of download. Defaults to 2.
         out_cmd (bool, optional): Whether print out the command. Defaults to False.
         encrypt_password (bytes, optional): The password to decrypt the file. Defaults to b"".
+        callback_for_monitor (Callable[[int], Any], optional): The callback function for monitor. Defaults to None.
+            The callback function should accept one argument which is the count of bytes downloaded.
+            The callback function is only passed to the `MeDownloader` downloader.
     """
 
     if isinstance(downloader, str):
@@ -396,6 +404,7 @@ def download_file(
             max_retries=max_retries,
             out_cmd=out_cmd,
             encrypt_password=encrypt_password,
+            callback_for_monitor=callback_for_monitor,
         )
     except Exception as origin_err:
         msg = f'Download "{remote_pcs_file.path}" (file_id = "{remote_pcs_file.file_id}") to "{localpath}" failed. error: {origin_err}'
