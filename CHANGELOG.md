@@ -1,5 +1,323 @@
 # Changelog
 
+## v0.8.0 - 2024-04-09
+
+Add new apis and remove unneeded apis.
+
+#### Inner datas
+
+1. **PcsFile** class
+
+   - `path`
+
+     Default is the name of the file. It will be different from different apis returned. See `AliPCSApi.meta`, `AliPCSApi.meta_by_path`, `AliPCSApi.get_file`, `AliPCSApi.list`, `AliPCSApi.list_iter`, `AliPCSApi.path_traceback`, `AliPCSApi.path`.
+
+   - `update_download_url`
+
+     The method is removed. Use `AliPCSApi.update_download_url` instead.
+
+2. **FromTo** type
+
+   The original `FromTo` is a nametuple. We change it to a general type `FromTo = Tuple[F, T]`
+
+3. **PcsDownloadUrl** class
+
+   - `expires`
+
+     Add the method to check whether the `download_url` expires.
+
+#### Errors
+
+1. **AliPCSBaseError** class
+
+   The base Exception class used for the PCS errors.
+
+2. **AliPCSError(AliPCSBaseError)** class
+
+   The error returned from alipan server when the client’s request is incorrect or the token is expired.
+
+   It throw at **AliPCS** class when an error occurs.
+
+3. **DownloadError(AliPCSBaseError)** class
+
+   An error occurs when downloading action fails.
+
+4. **UploadError(AliPCSBaseError)** class
+
+   An error occurs when uploading action fails.
+
+5. **RapidUploadError(UploadError)** class
+
+   An error occurred when rapid uploading action fails.
+
+6. **make_alipcs_error** function
+
+   Make an AliPCSError instance.
+
+7. **handle_error** function
+
+   uses the `_error_max_retries` attribute of the wrapped method’s class to retry.
+
+#### Core APIs
+
+1. **AliPCS** class
+
+   ```python
+   class AliPCS:
+       SHARE_AUTHS: Dict[str, SharedAuth] = {}
+       def __init__(
+           self,
+           refresh_token: str,
+           access_token: str = "",
+           token_type: str = "Bearer",
+           expire_time: int = 0,
+           user_id: str = "",
+           user_name: str = "",
+           nick_name: str = "",
+           device_id: str = "",
+           default_drive_id: str = "",
+           role: str = "",
+           status: str = "",
+           error_max_retries: int = 2,
+           max_keepalive_connections: int = 50,
+           max_connections: int = 50,
+           keepalive_expiry: float = 10 * 60,
+           connection_max_retries: int = 2,
+       ): ...
+   ```
+
+   The core alipan.com service apis. It directly handles the raw requests and responses of the service.
+
+   **New/Changed APIs are following:**
+
+   - `path_traceback` method (**New**)
+
+     Traceback the path of the file by its file_id. Return the list of all parent directories' info from the file to the top level directory.
+
+   - `meta_by_path` method (**New**)
+
+     Get meta info of the file by its path.
+
+     > Can not get the shared files' meta info.
+
+   - `meta` method (**Changed**)
+
+     Get meta info of the file by its file_id.
+
+   - `exists` method (**Changed**)
+
+     Check whether the file exists. Return True if the file exists and does not in the trash else False.
+
+   - `exists_in_trash` method (**New**)
+
+     Check whether the file exists in the trash. Return True if the file exists in the trash else False.
+
+   - `walk` method (**New**)
+
+     Walk through the directory tree by its file_id.
+
+   - `download_link` method (**Changed**)
+
+     Get download link of the file by its file_id.
+
+     First try to get the download link from the meta info of the file. If the download link is not in the meta info, then request the getting download url api.
+
+2. **AliPCSApi** class
+
+   ```python
+   class AliPCSApi:
+       def __init__(
+           self,
+           refresh_token: str,
+           access_token: str = "",
+           token_type: str = "",
+           expire_time: int = 0,
+           user_id: str = "",
+           user_name: str = "",
+           nick_name: str = "",
+           device_id: str = "",
+           default_drive_id: str = "",
+           role: str = "",
+           status: str = "",
+           error_max_retries: int = 2,
+           max_keepalive_connections: int = 50,
+           max_connections: int = 50,
+           keepalive_expiry: float = 10 * 60,
+           connection_max_retries: int = 2,
+       ): ...
+   ```
+
+   The core alipan.com service api with wrapped **AliPCS** class. It parses the raw content of response of AliPCS request into the inner data structions.
+
+   - **New/Changed APIs are following:**
+
+     - `path_traceback` method (**New**)
+
+       Traceback the path of the file. Return the list of all `PcsFile`s from the file to the top level directory.
+
+       > _Important_:
+       > The `path` property of the returned `PcsFile` has absolute path.
+
+     - `meta_by_path` method (**New**)
+
+       Get the meta of the the path. Can not get the shared files' meta info by their paths.
+
+       > _Important_:
+       > The `path` property of the returned `PcsFile` is the argument `remotepath`.
+
+     - `meta` method (**Changed**)
+
+       Get meta info of the file.
+
+       > _Important_:
+       > The `path` property of the returned `PcsFile` is only the name of the file.
+
+     - `get_file` method (**New**)
+
+       Get the file's info by the given `remotepath` or `file_id`
+
+       If the `remotepath` is given, the `file_id` will be ignored.
+
+       > _Important_:
+       > If the `remotepath` is given, the `path` property of the returned `PcsFile` is the `remotepath`.
+       > If the `file_id` is given, the `path` property of the returned `PcsFile` is only the name of the file.
+
+     - `exists` method (**Changed**)
+
+       Check whether the file exists. Return True if the file exists and does not in the trash else False.
+
+     - `exists_in_trash` method (**Changed**)
+
+       Check whether the file exists in the trash. Return True if the file exists in the trash else False.
+
+     - `list` method (**Changed**)
+
+       List files and directories in the given directory (which has the `file_id`). The return items size is limited by the `limit` parameter. If you want to list more, using the returned `next_marker` parameter for next `list` call.
+
+       > _Important_:
+       > These PcsFile instances' path property is only the name of the file.
+
+     - `list_iter` method (**Changed**)
+
+       Iterate all files and directories at the directory (which has the `file_id`).
+
+       > These returned PcsFile instances' path property is the path from the first sub-directory of the `file_id` to the file name.
+       > e.g.
+       > If the directory (owned `file_id`) has path `level0/`, a sub-directory which of path is
+       > `level0/level1/level2` then its corresponding PcsFile.path is `level1/level2`.
+
+     - `path` method (**Changed**)
+
+       Get the pcs file's info by the given absolute `remotepath`
+
+       > _Important_:
+       > The `path` property of the returned `PcsFile` is the argument `remotepath`.
+
+     - `list_path` method (**Removed**)
+
+     - `list_path_iter` method (**Removed**)
+
+     - `walk` method (**New**)
+
+       Recursively Walk through the directory tree which has `file_id`.
+
+       > _Important_:
+       > These PcsFile instances' path property is the path from the first sub-directory of the `file_id` to the file.
+       > e.g.
+       > If the directory (owned `file_id`) has path `level0/`, a sub-directory which of path is
+       > `level0/level1/level2` then its corresponding PcsFile.path is `level1/level2`.
+
+     - `makedir` method (**Changed**)
+
+       Make a directory in the `dir_id` directory
+
+       > _Important_:
+       > The `path` property of the returned `PcsFile` is only the name of the directory.
+
+     - **makedir_path** method (**Changed**)
+
+       Make a directory by the absolute `remotedir` path
+
+       Return the list of all `PcsFile`s from the directory to the top level directory.
+
+       > _Important_:
+       > The `path` property of the returned `PcsFile` has absolute path.
+
+     - `rename` method (**Changed**)
+
+       Rename the file with `file_id` to `name`
+
+       > _Important_:
+       > The `path` property of the returned `PcsFile` is only the name of the file.
+
+     - `copy` method (**Changed**)
+
+       Copy `file_ids[:-1]` to `file_ids[-1]`
+
+       > _Important_:
+       > The `path` property of the returned `PcsFile` is only the name of the file.
+
+     - `update_download_url` method (**New**)
+
+       Update the download url of the `pcs_file` if it is expired.
+
+       Return a new `PcsFile` with the updated download url.
+
+#### Download
+
+1. **MeDownloader** class
+
+   ```python
+   class MeDownloader:
+       def __init__(
+           self,
+           range_request_io: RangeRequestIO,
+           localpath: PathType,
+           continue_: bool = False,
+           max_retries: int = 2,
+           done_callback: Optional[Callable[..., Any]] = None,
+           except_callback: Optional[Callable[[Exception], Any]] = None,
+       ) -> None: ...
+   ```
+
+2. **download** module
+
+   - `DownloadParams` class (**Removed**)
+
+     We remove the `DownloadParams` instead of using arguments for function calling.
+
+   - `download_file` function (**Changed**)
+
+     `download_file` downloads one remote file to one local directory. Raise any error occurred. So giving the upper level caller to handle errors.
+
+   - `download` function (**Changed**)
+
+     `download` function downloads any number of remote files/directory to one local directory. It uses a `ThreadPoolExecutor` to download files concurrently and raise the exception if any error occurred.
+
+3. **upload** module
+
+   - `UploadType` class (**Removed**)
+
+     Alipan.com only support to upload a file through uploading slice parts one by one.
+
+     So, the class is not needed.
+
+   - `upload_file` function (**Changed**)
+
+     Upload a file from one local file ( `from_to[0]`) to remote ( `from_to[1]`).
+
+     First try to rapid upload, if failed, then upload file's slices.
+
+     Raise exception if any error occurs.
+
+   - `upload` function (**Changed**)
+
+     Upload files in `from_to_list` to Alipan Drive.
+
+     Use a `ThreadPoolExecutor` to upload files concurrently.
+
+     Raise exception if any error occurs.
+
 ## v0.7.0 - 2024-04-03
 
 ### Updated
