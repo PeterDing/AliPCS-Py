@@ -89,6 +89,11 @@ class AliPCSApi:
         # Map `share_id` to a `PathTree` for that shared link
         self._shared_path_tree: DefaultDict[str, PathTree] = defaultdict(partial(PathTree, self))
 
+    def refresh(self) -> None:
+        """Refresh the refresh_token and access_token"""
+
+        self._alipcs.refresh()
+
     @property
     def refresh_token(self) -> str:
         return self._alipcs.refresh_token
