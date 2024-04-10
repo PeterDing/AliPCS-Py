@@ -95,7 +95,11 @@ def save_shared_by_file_ids(
     for file_id in file_ids:
         pf = api.get_file(file_id=file_id, share_id=share_id)
         if pf is not None:
-            shared_pcs_files.append(pf)
+            if pf.is_root():
+                # No need to save root directory, save its sub files/directories
+                shared_pcs_files.extend(api.list_iter(file_id, share_id=share_id, recursive=False, include_dir=True))
+            else:
+                shared_pcs_files.append(pf)
 
     # Record the remote directory of each shared_file
     shared_file_id_to_remotedir: Dict[str, str] = {}
