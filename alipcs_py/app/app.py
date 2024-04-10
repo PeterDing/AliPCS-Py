@@ -410,6 +410,7 @@ def updateuser(ctx, user_ids):
         user_ids = [am._who]
 
     for user_id in user_ids:
+        am.refresh(user_id)  # Enforce refresh the refresh_token and access_token
         am.update(user_id)
         account = am.who(user_id)
         if account:
@@ -674,7 +675,7 @@ def ls(
             share_id=share_id,
             share_url=share_url,
             password=password,
-            file_ids=file_id,
+            file_ids=list(file_id),
             desc=desc,
             name=name,
             time=time,
@@ -699,7 +700,7 @@ def ls(
         list_files(
             api,
             *remotepaths,
-            file_ids=file_id,
+            file_ids=list(file_id),
             desc=desc,
             name=name,
             time=time,
@@ -1180,7 +1181,7 @@ def play(
         _share.play_shared(
             api,
             remotepaths,
-            file_ids=file_id,
+            file_ids=list(file_id),
             share_id=share_id,
             share_url=share_url,
             password=password,
@@ -1201,7 +1202,7 @@ def play(
         _play(
             api,
             remotepaths,
-            file_ids=file_id,
+            file_ids=list(file_id),
             sifters=sifters,
             recursive=recursive,
             from_index=from_index,
@@ -1427,7 +1428,7 @@ def save(ctx, share_url_or_id, file_id, remotedir, password):
         remotedir,
         share_id=share_id,
         share_url=share_url,
-        file_ids=file_id,
+        file_ids=list(file_id),
         password=password,
     )
 

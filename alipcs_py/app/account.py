@@ -202,6 +202,15 @@ class AccountManager:
         else:
             return None
 
+    def refresh(self, user_id: Optional[str] = None):
+        """Refresh the refresh_token and access_token"""
+
+        user_id = user_id or self._who
+        if user_id:
+            api = self.get_api(user_id)
+            if api:
+                api.refresh()
+
     def update(self, user_id: Optional[str] = None):
         """Update user_info"""
 
