@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.8.1 - 2024-04-10
+
+### Fixed
+
+- 修复保持分享链接根目录出错。
+
+### Changed
+
+- `updateuser` 命令中也更新 tokens。
+
 ## v0.8.0 - 2024-04-09
 
 Add new apis and remove unneeded apis.
