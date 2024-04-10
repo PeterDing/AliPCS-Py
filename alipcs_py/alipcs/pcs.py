@@ -285,17 +285,18 @@ class AliPCS:
         except Exception as err:
             raise AliPCSError("AliPCS._request") from err
 
-    def refresh(self):
-        """Refresh token"""
-
+    @handle_error
+    def _refresh(self):
         url = PcsNode.Refresh.url()
         data = dict(refresh_token=self._refresh_token)
         resp = self._request(Method.Post, url, json=data, refresh=True)
         info = resp.json()
+        return info
 
-        if "code" in info:
-            err = make_alipcs_error(info["code"], info=info)
-            raise err
+    def refresh(self):
+        """Refresh the refresh_token and access_token"""
+
+        info = self._refresh()
 
         self._user_id = info["user_id"]
         self._user_name = info["user_name"]
