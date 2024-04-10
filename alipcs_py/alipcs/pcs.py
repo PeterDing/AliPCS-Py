@@ -975,11 +975,11 @@ class AliPCS:
         """Transfer shared files to destination directory"""
 
         requests_ = []
-        for file_id in shared_file_ids:
+        for i, file_id in enumerate(shared_file_ids):
             req = dict(
                 method="POST",
                 url="/file/copy",
-                id="0",
+                id=str(i),
                 headers={"Content-Type": "application/json"},
                 body=dict(
                     auto_rename=auto_rename,
