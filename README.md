@@ -11,19 +11,19 @@
 
 An AliPCS API and An App
 
-AliPCS-Py 是阿里云盘的非官方 api 和一个命令行运用程序。
+AliPCS-Py 是阿里云盘的非官方 api 和一个命令行应用程序。
 
 变更日志在 [CHANGELOG.md](./CHANGELOG.md)。
 
 ---
 
-## 百度云盘 api 和 命令行客户端在 https://github.com/PeterDing/BaiduPCS-Py
+## 百度云盘 api 和 命令行客户端在 <https://github.com/PeterDing/BaiduPCS-Py>
 
 ---
 
 - [安装](#安装)
 - [更新](#更新)
-- [API](#API)
+- [API](#api)
 - [用法](#用法)
 - [命令别名](#命令别名)
 - [对多个帐号进行相同操作](#对多个帐号进行相同操作)
@@ -254,11 +254,11 @@ AliPCS-Py useradd --web-refresh-token "..." --client-id "..." --client-secret ".
 
 ### 使用 web `refresh_token` 登录
 
-使用者需要在 https://www.aliyundrive.com/drive/ 登录后获取 `refresh_token` 值，并用命令 `useradd` 为 AliPCS-Py 添加一个用户。`useradd` 其他参数留空就好。
+使用者需要在 <https://www.aliyundrive.com/drive/> 登录后获取 `refresh_token` 值，并用命令 `useradd` 为 AliPCS-Py 添加一个用户。`useradd` 其他参数留空就好。
 
 使用者可以用下面的方式获取用户的 `refresh_token` 值。
 
-1. 登录 https://www.aliyundrive.com/drive/
+1. 登录 <https://www.aliyundrive.com/drive/>
 2. 打开浏览器的开发者工具(如 Chrome DevTools)。
 3. 然后选择开发者工具的 Console 面板。输入 `JSON.parse(localStorage.token).refresh_token`，再回车，获取 `refresh_token`。
 
@@ -663,7 +663,7 @@ AliPCS-Py download -i file_id1 -i file_id2 -i ...
 | -k, --chunk-size TEXT                                  | 同步链接分块大小，默认为 50MB                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | -q, --quiet                                            | 取消第三方下载应用输出                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | --out-cmd, --OC                                        | 输出第三方下载应用命令                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| -d, --downloader [ me \| aget_py \| aget_rs \| aria2 ] | 指定下载应用<br> <br> 默认为 me (AliPCS-Py 自己的下载器，支持断续下载)<br> me 使用多文件并发下载。<br> <br> 除 me 外，其他下载器，不使用多文件并发下载，使用一个文件多链接下载。<br> 如果需要下载多个小文件推荐使用 me，如果需要下载少量大文件推荐使用其他下载器。<br> <br> aget_py (https://github.com/PeterDing/aget) 默认安装<br> aget_rs (下载 https://github.com/PeterDing/aget-rs/releases)<br> aria2 (下载 https://github.com/aria2/aria2/releases)<br> |
+| -d, --downloader [ me \| aget_py \| aget_rs \| aria2 ] | 指定下载应用<br> <br> 默认为 me (AliPCS-Py 自己的下载器，支持断续下载)<br> me 使用多文件并发下载。<br> <br> 除 me 外，其他下载器，不使用多文件并发下载，使用一个文件多链接下载。<br> 如果需要下载多个小文件推荐使用 me，如果需要下载少量大文件推荐使用其他下载器。<br> <br> aget_py (<https://github.com/PeterDing/aget>) 默认安装<br> aget_rs (下载 <https://github.com/PeterDing/aget-rs/releases>)<br> aria2 (下载 <https://github.com/aria2/aria2/releases>)<br> |
 | --encrypt-password, --ep TEXT                          | 加密密码，默认使用用户设置的                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 
 ## 播放媒体文件
@@ -706,7 +706,7 @@ AliPCS-Py play -i file_id1 -i file_id2 -i ...
 | --shuffle, --sf               | 随机播放                                             |
 | --ignore-ext, --IE            | 不用文件名后缀名来判断媒体文件                       |
 | --out-cmd, --OC               | 输出第三方播放器命令                                 |
-| --pl, --player [mpv]          | 指定第三方播放器<br><br>默认为 mpv (https://mpv.io)  |
+| --pl, --player [mpv]          | 指定第三方播放器<br><br>默认为 mpv (<https://mpv.io>)  |
 | -s, --use-local-server        | 使用本地服务器播放。                                 |
 | --encrypt-password, --ep TEXT | 加密密码，默认使用用户设置的                         |
 
@@ -827,7 +827,7 @@ AliPCS-Py cancelshared [OPTIONS] [SHARE_IDS]...
 
 - 使用分享 ID
 
-  分享 ID 是 https://www.aliyundrive.com/s/DaNNsdvi9bi 中的 `DaNNsdvi9bi`
+  分享 ID 是 <https://www.aliyundrive.com/s/DaNNsdvi9bi> 中的 `DaNNsdvi9bi`
 
   ```
   AliPCS-Py ls /path --share-id SHARE_ID
